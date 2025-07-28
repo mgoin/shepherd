@@ -6,11 +6,18 @@ class PRShepherdSidebar {
     this.repo = { owner: 'vllm-project', name: 'vllm' };
     this.rateLimitInfo = { remaining: 5000, reset: 0 };
     this.lastUpdate = null;
+    this.allPRs = [];
+    this.filteredPRs = [];
+    this.currentUser = null;
+    this.customGroups = [];
+    this.searchTerm = '';
+    this.reviewerOnlyMode = true;
     
     this.init();
   }
 
   async init() {
+    await this.loadCustomGroups();
     await this.checkAuth();
     this.setupEventListeners();
     await this.loadPRs();
@@ -51,11 +58,29 @@ class PRShepherdSidebar {
       this.loadPRs(true);
     });
 
+    // Search input
+    const searchInput = document.getElementById('search-input');
+    searchInput.addEventListener('input', (e) => {
+      this.searchTerm = e.target.value.toLowerCase();
+      this.applyFilters();
+    });
+
+    // Reviewer only checkbox
+    document.getElementById('reviewer-only').addEventListener('change', (e) => {
+      this.reviewerOnlyMode = e.target.checked;
+      this.applyFilters();
+    });
+
     // Filter buttons
     document.querySelectorAll('.filter-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         this.handleFilterClick(e);
       });
+    });
+
+    // Add group button
+    document.getElementById('add-group-btn').addEventListener('click', () => {
+      this.createCustomGroup();
     });
 
     // Listen for background updates
@@ -102,32 +127,60 @@ class PRShepherdSidebar {
     });
     e.target.classList.add('active');
     
-    const filter = e.target.dataset.filter;
-    this.filterPRs(filter);
+    this.currentFilter = e.target.dataset.filter;
+    this.applyFilters();
   }
 
-  filterPRs(filter) {
-    const prItems = document.querySelectorAll('.pr-item');
-    prItems.forEach(item => {
-      const shouldShow = this.shouldShowPR(item, filter);
-      item.style.display = shouldShow ? 'block' : 'none';
+  applyFilters() {
+    this.filteredPRs = this.allPRs.filter(pr => {
+      // Search filter
+      if (this.searchTerm) {
+        const searchableText = `${pr.title} ${pr.number} ${pr.author.login} ${pr.headRefName}`.toLowerCase();
+        if (!this.fuzzyMatch(searchableText, this.searchTerm)) {
+          return false;
+        }
+      }
+
+      // Reviewer only filter
+      if (this.reviewerOnlyMode && this.currentUser) {
+        const isReviewer = pr.reviewRequests.nodes.some(req => 
+          req.requestedReviewer?.login === this.currentUser.login
+        );
+        const hasReviewed = pr.reviews.nodes.some(review => 
+          review.author.login === this.currentUser.login
+        );
+        if (!isReviewer && !hasReviewed) {
+          return false;
+        }
+      }
+
+      // Status filter
+      if (this.currentFilter && this.currentFilter !== 'all') {
+        return this.shouldShowPR(pr, this.currentFilter);
+      }
+
+      return true;
     });
+
+    this.renderFilteredPRs();
   }
 
-  shouldShowPR(prItem, filter) {
-    if (filter === 'all') return true;
-    
-    const status = prItem.dataset.status || '';
-    const isDraft = prItem.dataset.draft === 'true';
-    const reviewDecision = prItem.dataset.reviewDecision || '';
+  fuzzyMatch(text, search) {
+    const searchWords = search.split(' ').filter(word => word.length > 0);
+    return searchWords.every(word => text.includes(word));
+  }
+
+  shouldShowPR(pr, filter) {
+    const isDraft = pr.isDraft;
+    const reviewDecision = pr.reviewDecision || '';
     
     switch (filter) {
       case 'ready':
-        return !isDraft && status === 'OPEN' && reviewDecision !== 'APPROVED';
+        return !isDraft && pr.state === 'OPEN' && reviewDecision !== 'APPROVED';
       case 'wip':
         return isDraft;
       case 'finished':
-        return status === 'MERGED' || status === 'CLOSED' || reviewDecision === 'APPROVED';
+        return pr.state === 'MERGED' || pr.state === 'CLOSED' || reviewDecision === 'APPROVED';
       default:
         return true;
     }
@@ -201,6 +254,15 @@ class PRShepherdSidebar {
                 login
               }
               headRefName
+              reviewRequests(first: 10) {
+                nodes {
+                  requestedReviewer {
+                    ... on User {
+                      login
+                    }
+                  }
+                }
+              }
               commits(last: 1) {
                 nodes {
                   commit {
@@ -211,7 +273,7 @@ class PRShepherdSidebar {
                 }
               }
               reviewDecision
-              reviews(first: 5, states: [APPROVED, CHANGES_REQUESTED]) {
+              reviews(first: 10, states: [APPROVED, CHANGES_REQUESTED, COMMENTED]) {
                 totalCount
                 nodes {
                   state
@@ -228,6 +290,9 @@ class PRShepherdSidebar {
               }
             }
           }
+        }
+        viewer {
+          login
         }
         rateLimit {
           limit
@@ -262,22 +327,39 @@ class PRShepherdSidebar {
       throw new Error(`GraphQL Error: ${data.errors[0].message}`);
     }
 
-    // Store rate limit info
+    // Store rate limit info and current user
     this.rateLimitInfo = data.data.rateLimit;
+    this.currentUser = data.data.viewer;
     
     return data.data.repository.pullRequests.nodes;
   }
 
   renderPRs(prs) {
+    this.allPRs = prs;
+    this.currentFilter = 'all';
+    this.applyFilters();
+    this.renderCustomGroups();
+  }
+
+  renderFilteredPRs() {
     const listElement = document.getElementById('pr-list');
     
-    if (prs.length === 0) {
-      listElement.innerHTML = '<div class="empty">No open pull requests found.</div>';
+    if (this.filteredPRs.length === 0) {
+      if (this.reviewerOnlyMode && this.allPRs.length > this.filteredPRs.length) {
+        listElement.innerHTML = '<div class="empty">No PRs where you are a reviewer.<br><small>Uncheck "My reviews only" to see all PRs.</small></div>';
+      } else if (this.searchTerm) {
+        listElement.innerHTML = '<div class="empty">No PRs match your search.</div>';
+      } else {
+        listElement.innerHTML = '<div class="empty">No pull requests found.</div>';
+      }
       return;
     }
 
-    const prHTML = prs.map(pr => this.renderPR(pr)).join('');
+    const prHTML = this.filteredPRs.map(pr => this.renderPR(pr)).join('');
     listElement.innerHTML = prHTML;
+    
+    // Add drag and drop functionality
+    this.setupDragAndDrop();
   }
 
   renderPR(pr) {
@@ -288,9 +370,11 @@ class PRShepherdSidebar {
     
     return `
       <div class="pr-item" 
+           data-pr-number="${pr.number}"
            data-status="${pr.state}" 
            data-draft="${pr.isDraft}"
-           data-review-decision="${pr.reviewDecision || ''}">
+           data-review-decision="${pr.reviewDecision || ''}"
+           draggable="true">
         <div class="pr-header">
           <div class="pr-title">
             <a href="https://github.com/${this.repo.owner}/${this.repo.name}/pull/${pr.number}" 
@@ -384,9 +468,147 @@ class PRShepherdSidebar {
       lastUpdateElement.textContent = `Updated: ${this.lastUpdate.toLocaleTimeString()}`;
     }
   }
+
+  // Custom Groups Functionality
+  async loadCustomGroups() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['custom_groups'], (result) => {
+        this.customGroups = result.custom_groups || [];
+        resolve();
+      });
+    });
+  }
+
+  async saveCustomGroups() {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ custom_groups: this.customGroups }, resolve);
+    });
+  }
+
+  createCustomGroup() {
+    const name = prompt('Enter group name:');
+    if (name && name.trim()) {
+      const group = {
+        id: Date.now().toString(),
+        name: name.trim(),
+        prNumbers: []
+      };
+      this.customGroups.push(group);
+      this.saveCustomGroups();
+      this.renderCustomGroups();
+    }
+  }
+
+  renderCustomGroups() {
+    const container = document.getElementById('custom-groups');
+    
+    if (this.customGroups.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    const groupsHTML = this.customGroups.map(group => this.renderCustomGroup(group)).join('');
+    container.innerHTML = groupsHTML;
+    this.setupGroupEventListeners();
+  }
+
+  renderCustomGroup(group) {
+    const prsInGroup = group.prNumbers.map(prNumber => {
+      const pr = this.allPRs.find(p => p.number === prNumber);
+      return pr ? `
+        <div class="group-pr-item">
+          #${pr.number} ${pr.title.substring(0, 30)}${pr.title.length > 30 ? '...' : ''}
+          <button class="group-pr-remove" onclick="prShepherd.removePRFromGroup('${group.id}', ${pr.number})">×</button>
+        </div>
+      ` : '';
+    }).filter(html => html).join('');
+
+    return `
+      <div class="custom-group" data-group-id="${group.id}">
+        <div class="group-header">
+          <span class="group-title">${group.name}</span>
+          <div class="group-actions">
+            <span class="group-count">${group.prNumbers.length}</span>
+            <button class="group-delete-btn" onclick="prShepherd.deleteGroup('${group.id}')">×</button>
+          </div>
+        </div>
+        <div class="group-content" data-group-id="${group.id}">
+          ${prsInGroup}
+        </div>
+      </div>
+    `;
+  }
+
+  setupGroupEventListeners() {
+    // Setup drop zones for custom groups
+    document.querySelectorAll('.group-content').forEach(groupContent => {
+      groupContent.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        groupContent.classList.add('drag-over');
+      });
+
+      groupContent.addEventListener('dragleave', (e) => {
+        if (!groupContent.contains(e.relatedTarget)) {
+          groupContent.classList.remove('drag-over');
+        }
+      });
+
+      groupContent.addEventListener('drop', (e) => {
+        e.preventDefault();
+        groupContent.classList.remove('drag-over');
+        
+        const prNumber = parseInt(e.dataTransfer.getData('text/plain'));
+        const groupId = groupContent.dataset.groupId;
+        this.addPRToGroup(groupId, prNumber);
+      });
+    });
+  }
+
+  setupDragAndDrop() {
+    document.querySelectorAll('.pr-item[draggable="true"]').forEach(prItem => {
+      prItem.addEventListener('dragstart', (e) => {
+        const prNumber = parseInt(prItem.dataset.prNumber);
+        e.dataTransfer.setData('text/plain', prNumber.toString());
+        prItem.classList.add('dragging');
+      });
+
+      prItem.addEventListener('dragend', (e) => {
+        prItem.classList.remove('dragging');
+      });
+    });
+  }
+
+  addPRToGroup(groupId, prNumber) {
+    const group = this.customGroups.find(g => g.id === groupId);
+    if (group && !group.prNumbers.includes(prNumber)) {
+      group.prNumbers.push(prNumber);
+      this.saveCustomGroups();
+      this.renderCustomGroups();
+    }
+  }
+
+  removePRFromGroup(groupId, prNumber) {
+    const group = this.customGroups.find(g => g.id === groupId);
+    if (group) {
+      group.prNumbers = group.prNumbers.filter(num => num !== prNumber);
+      this.saveCustomGroups();
+      this.renderCustomGroups();
+    }
+  }
+
+  deleteGroup(groupId) {
+    if (confirm('Delete this group?')) {
+      this.customGroups = this.customGroups.filter(g => g.id !== groupId);
+      this.saveCustomGroups();
+      this.renderCustomGroups();
+    }
+  }
 }
+
+// Global reference for onclick handlers
+let prShepherd;
 
 // Initialize when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  new PRShepherdSidebar();
+  prShepherd = new PRShepherdSidebar();
 });

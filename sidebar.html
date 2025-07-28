@@ -28,11 +28,29 @@
     </div>
     
     <div class="main-content" id="main-content" style="display: none;">
+      <div class="search-section">
+        <input type="text" id="search-input" placeholder="🔍 Search PRs..." class="search-input">
+        <div class="view-options">
+          <label class="checkbox-label">
+            <input type="checkbox" id="reviewer-only" checked>
+            <span>My reviews only</span>
+          </label>
+        </div>
+      </div>
+      
       <div class="filters">
         <button class="filter-btn active" data-filter="all">All</button>
         <button class="filter-btn" data-filter="ready">Ready</button>
         <button class="filter-btn" data-filter="wip">WIP</button>
         <button class="filter-btn" data-filter="finished">Done</button>
+      </div>
+      
+      <div class="groups-section">
+        <div class="groups-header">
+          <span>Custom Groups</span>
+          <button id="add-group-btn" class="add-group-btn" title="Add Group">+</button>
+        </div>
+        <div class="custom-groups" id="custom-groups"></div>
       </div>
       
       <div class="pr-list" id="pr-list">
