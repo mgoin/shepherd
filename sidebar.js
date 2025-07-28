@@ -54,6 +54,11 @@ class PRShepherdSidebar {
       this.handleAuth();
     });
 
+    // Settings button
+    document.getElementById('settings-btn').addEventListener('click', () => {
+      this.handleAuth();
+    });
+
     // Refresh button
     document.getElementById('refresh-btn').addEventListener('click', () => {
       this.loadPRs(true);
@@ -114,12 +119,23 @@ class PRShepherdSidebar {
 
   async handleAuth() {
     const token = prompt(
-      'Enter your GitHub Personal Access Token:\n\n' +
-      'Required scopes: repo, read:org\n' +
-      '(OAuth coming soon!)'
+      '🔑 GitHub Personal Access Token Setup\n\n' +
+      '1. Go to: https://github.com/settings/tokens\n' +
+      '2. Click "Generate new token (classic)"\n' +
+      '3. Select these scopes:\n' +
+      '   ✅ repo (Full control of private repositories)\n' +
+      '   ✅ read:org (Read org and team membership)\n' +
+      '4. Copy and paste the token below:\n\n' +
+      'Token:'
     );
     
     if (token && token.trim()) {
+      // Validate token format
+      if (!token.trim().startsWith('ghp_') && !token.trim().startsWith('github_pat_')) {
+        alert('⚠️ Invalid token format. GitHub tokens start with "ghp_" or "github_pat_"');
+        return;
+      }
+      
       await this.storeToken(token.trim());
       this.token = token.trim();
       await this.checkAuth();
@@ -229,6 +245,17 @@ class PRShepherdSidebar {
         listElement.innerHTML = `
           <div class="error">
             Authentication failed. Please check your token.
+            <br><br>
+            <button class="btn" onclick="document.getElementById('auth-btn').click()">
+              Update Token
+            </button>
+          </div>
+        `;
+      } else if (error.message.includes('required scopes') || error.message.includes('read:org')) {
+        listElement.innerHTML = `
+          <div class="error">
+            Token missing required scopes.
+            <br><small>Need: <code>repo</code> and <code>read:org</code></small>
             <br><br>
             <button class="btn" onclick="document.getElementById('auth-btn').click()">
               Update Token
