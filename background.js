@@ -12,6 +12,11 @@ class ShepherdBackground {
       this.setupPeriodicUpdate();
     });
 
+    // Handle action button click to open sidebar
+    chrome.action.onClicked.addListener((tab) => {
+      chrome.sidePanel.open({ tabId: tab.id });
+    });
+
     // Handle startup
     chrome.runtime.onStartup.addListener(() => {
       console.log('PR Shepherd started');
