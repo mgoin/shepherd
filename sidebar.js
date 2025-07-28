@@ -12,6 +12,7 @@ class PRShepherdSidebar {
     this.customGroups = [];
     this.searchTerm = '';
     this.reviewerOnlyMode = true;
+    this.includeTeamRequests = false;
     
     this.init();
   }
@@ -68,6 +69,12 @@ class PRShepherdSidebar {
     // Reviewer only checkbox
     document.getElementById('reviewer-only').addEventListener('change', (e) => {
       this.reviewerOnlyMode = e.target.checked;
+      this.applyFilters();
+    });
+
+    // Include team requests checkbox
+    document.getElementById('include-teams').addEventListener('change', (e) => {
+      this.includeTeamRequests = e.target.checked;
       this.applyFilters();
     });
 
@@ -143,28 +150,21 @@ class PRShepherdSidebar {
 
       // Reviewer only filter
       if (this.reviewerOnlyMode && this.currentUser) {
-        const isReviewer = pr.reviewRequests.nodes.some(req => {
+        const isDirectReviewer = pr.reviewRequests.nodes.some(req => {
           const reviewer = req.requestedReviewer;
-          if (!reviewer) return false;
-          
-          // Direct user reviewer
-          if (reviewer.login === this.currentUser.login) return true;
-          
-          // Team reviewer - check if user is member
-          if (reviewer.members && reviewer.members.nodes) {
-            return reviewer.members.nodes.some(member => 
-              member.login === this.currentUser.login
-            );
-          }
-          
-          return false;
+          return reviewer?.login === this.currentUser.login;
+        });
+        
+        const hasTeamRequest = this.includeTeamRequests && pr.reviewRequests.nodes.some(req => {
+          const reviewer = req.requestedReviewer;
+          return reviewer?.slug; // This means it's a team
         });
         
         const hasReviewed = pr.reviews.nodes.some(review => 
           review.author.login === this.currentUser.login
         );
         
-        if (!isReviewer && !hasReviewed) {
+        if (!isDirectReviewer && !hasTeamRequest && !hasReviewed) {
           return false;
         }
       }
@@ -277,11 +277,7 @@ class PRShepherdSidebar {
                     }
                     ... on Team {
                       slug
-                      members(first: 100) {
-                        nodes {
-                          login
-                        }
-                      }
+                      name
                     }
                   }
                 }
@@ -445,6 +441,18 @@ class PRShepherdSidebar {
   getReviewStatus(pr) {
     if (pr.reviewDecision === 'APPROVED') return '👍 Approved';
     if (pr.reviewDecision === 'CHANGES_REQUESTED') return '👎 Changes requested';
+    
+    // Check if user is directly requested for review
+    const isDirectReviewer = pr.reviewRequests.nodes.some(req => {
+      const reviewer = req.requestedReviewer;
+      return reviewer?.login === this.currentUser?.login;
+    });
+    
+    // Check for team requests
+    const teamRequests = pr.reviewRequests.nodes.filter(req => req.requestedReviewer?.slug);
+    
+    if (isDirectReviewer) return '👤 You requested';
+    if (teamRequests.length > 0) return `👥 Team review (${teamRequests.length})`;
     
     const reviewCount = pr.reviews.totalCount;
     if (reviewCount === 0) return '⏳ No reviews';
