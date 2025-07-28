@@ -99,10 +99,15 @@ class PRShepherdSidebar {
   }
 
   setupAutoRefresh() {
-    // Refresh every 5 minutes when sidebar is visible
+    // Refresh every 5 minutes when sidebar is visible, but respect rate limits
     setInterval(() => {
       if (document.visibilityState === 'visible' && this.token) {
-        this.loadPRs();
+        // Only refresh if we have sufficient rate limit remaining
+        if (this.rateLimitInfo.remaining > 50) {
+          this.loadPRs();
+        } else {
+          console.log('Skipping auto-refresh due to low rate limit:', this.rateLimitInfo.remaining);
+        }
       }
     }, 5 * 60 * 1000);
   }
@@ -230,6 +235,20 @@ class PRShepherdSidebar {
             </button>
           </div>
         `;
+      } else if (error.message.includes('403')) {
+        listElement.innerHTML = `
+          <div class="error">
+            Rate limit exceeded. Please wait before refreshing.
+            <br><small>Limit resets at ${new Date(this.rateLimitInfo.resetAt || Date.now() + 3600000).toLocaleTimeString()}</small>
+          </div>
+        `;
+      } else if (error.message.includes('502') || error.message.includes('503') || error.message.includes('504')) {
+        listElement.innerHTML = `
+          <div class="error">
+            GitHub API temporarily unavailable. 
+            <br><small>Try again in a few minutes.</small>
+          </div>
+        `;
       } else {
         listElement.innerHTML = `<div class="error">Error loading PRs: ${error.message}</div>`;
       }
@@ -335,6 +354,13 @@ class PRShepherdSidebar {
         }
       })
     });
+
+    // Log rate limit headers for debugging
+    const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
+    const rateLimitReset = response.headers.get('X-RateLimit-Reset');
+    if (rateLimitRemaining) {
+      console.log(`Rate limit: ${rateLimitRemaining} remaining, resets at ${new Date(rateLimitReset * 1000).toLocaleTimeString()}`);
+    }
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
