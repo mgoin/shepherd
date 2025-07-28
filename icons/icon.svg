@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <circle cx="64" cy="64" r="63" fill="#2da44e"/>
+  <circle cx="64" cy="70" r="32" fill="#ffffff"/>
+  <circle cx="64" cy="50" r="20" fill="#ffffff"/>
+  <circle cx="56" cy="46" r="3" fill="#000000"/>
+  <circle cx="72" cy="46" r="3" fill="#000000"/>
+  <text x="64" y="85" text-anchor="middle" font-size="12" fill="#2da44e" font-weight="bold">PR</text>
+</svg>

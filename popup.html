@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PR Shepherd</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🐑 PR Shepherd</h1>
+      <div class="repo-info">vllm-project/vllm</div>
+    </header>
+    
+    <div class="auth-section" id="auth-section">
+      <p>Connect to GitHub to start shepherding your PRs</p>
+      <button id="auth-btn" class="btn primary">Connect GitHub</button>
+    </div>
+    
+    <div class="main-content" id="main-content" style="display: none;">
+      <div class="filters">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="ready">Ready for Review</button>
+        <button class="filter-btn" data-filter="wip">WIP</button>
+        <button class="filter-btn" data-filter="finished">Finished</button>
+      </div>
+      
+      <div class="pr-list" id="pr-list">
+        <div class="loading">Loading your PRs...</div>
+      </div>
+    </div>
+    
+    <div class="rate-limit-info" id="rate-limit-info"></div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
