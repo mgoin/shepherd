@@ -143,12 +143,27 @@ class PRShepherdSidebar {
 
       // Reviewer only filter
       if (this.reviewerOnlyMode && this.currentUser) {
-        const isReviewer = pr.reviewRequests.nodes.some(req => 
-          req.requestedReviewer?.login === this.currentUser.login
-        );
+        const isReviewer = pr.reviewRequests.nodes.some(req => {
+          const reviewer = req.requestedReviewer;
+          if (!reviewer) return false;
+          
+          // Direct user reviewer
+          if (reviewer.login === this.currentUser.login) return true;
+          
+          // Team reviewer - check if user is member
+          if (reviewer.members && reviewer.members.nodes) {
+            return reviewer.members.nodes.some(member => 
+              member.login === this.currentUser.login
+            );
+          }
+          
+          return false;
+        });
+        
         const hasReviewed = pr.reviews.nodes.some(review => 
           review.author.login === this.currentUser.login
         );
+        
         if (!isReviewer && !hasReviewed) {
           return false;
         }
@@ -259,6 +274,14 @@ class PRShepherdSidebar {
                   requestedReviewer {
                     ... on User {
                       login
+                    }
+                    ... on Team {
+                      slug
+                      members(first: 100) {
+                        nodes {
+                          login
+                        }
+                      }
                     }
                   }
                 }
