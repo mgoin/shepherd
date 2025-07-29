@@ -64,6 +64,15 @@ body {
   color: #24292f;
 }
 
+.refresh-btn.updating {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Auth Section */
 .auth-section {
   flex: 1;

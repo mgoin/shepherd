@@ -21,7 +21,11 @@ class PRShepherdSidebar {
     await this.loadCustomGroups();
     await this.checkAuth();
     this.setupEventListeners();
-    await this.loadPRs();
+    
+    // Load cached data first, then fetch fresh data
+    await this.loadCachedData();
+    this.loadPRs(); // Don't await - let it happen in background
+    
     this.setupAutoRefresh();
   }
 
@@ -228,15 +232,18 @@ class PRShepherdSidebar {
     const listElement = document.getElementById('pr-list');
     const refreshBtn = document.getElementById('refresh-btn');
     
-    // Show loading state
-    refreshBtn.style.opacity = '0.5';
-    if (listElement.children.length === 0 || forceRefresh) {
+    // Only show loading state if we don't have cached data or forced refresh
+    const hasExistingData = this.allPRs && this.allPRs.length > 0;
+    refreshBtn.classList.add('updating');
+    
+    if (!hasExistingData || forceRefresh) {
       listElement.innerHTML = '<div class="loading">Loading your PRs...</div>';
     }
 
     try {
       const prs = await this.fetchPRs();
       this.renderPRs(prs);
+      await this.savePRCache(prs); // Save to cache
       this.updateFooter();
       this.lastUpdate = new Date();
     } catch (error) {
@@ -280,7 +287,46 @@ class PRShepherdSidebar {
         listElement.innerHTML = `<div class="error">Error loading PRs: ${error.message}</div>`;
       }
     } finally {
-      refreshBtn.style.opacity = '1';
+      refreshBtn.classList.remove('updating');
+    }
+  }
+
+  async loadCachedData() {
+    if (!this.token) return;
+    
+    try {
+      // Load from local storage cache
+      const cached = await new Promise((resolve) => {
+        chrome.storage.local.get(['pr_cache'], (result) => {
+          resolve(result.pr_cache);
+        });
+      });
+      
+      if (cached && cached.data && cached.data.length > 0) {
+        console.log('Loading cached PRs:', cached.data.length);
+        this.renderPRs(cached.data);
+        this.lastUpdate = new Date(cached.lastUpdate);
+        this.updateFooter();
+        return true;
+      }
+    } catch (error) {
+      console.log('No cached data available:', error);
+    }
+    return false;
+  }
+
+  async savePRCache(prs) {
+    try {
+      await new Promise((resolve) => {
+        chrome.storage.local.set({
+          pr_cache: {
+            data: prs,
+            lastUpdate: Date.now()
+          }
+        }, resolve);
+      });
+    } catch (error) {
+      console.error('Failed to cache PR data:', error);
     }
   }
 
@@ -293,7 +339,8 @@ class PRShepherdSidebar {
         this.updateFooter();
       }
     } catch (error) {
-      console.log('No cached data available, fetching fresh');
+      console.log('No background cache available, using local cache');
+      await this.loadCachedData();
     }
   }
 
@@ -549,8 +596,21 @@ class PRShepherdSidebar {
     }
     
     if (this.lastUpdate) {
-      lastUpdateElement.textContent = `Updated: ${this.lastUpdate.toLocaleTimeString()}`;
+      const timeAgo = this.getTimeAgo(this.lastUpdate);
+      lastUpdateElement.textContent = `Updated: ${timeAgo}`;
     }
+  }
+
+  getTimeAgo(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    
+    if (diffMinutes < 1) return 'just now';
+    if (diffMinutes === 1) return '1 minute ago';
+    if (diffMinutes < 60) return `${diffMinutes} minutes ago`;
+    
+    return date.toLocaleTimeString();
   }
 
   // Custom Groups Functionality
