@@ -93,14 +93,20 @@
         <button class="filter-btn" data-filter="ready">Ready</button>
         <button class="filter-btn" data-filter="wip">WIP</button>
         <button class="filter-btn" data-filter="finished">Done</button>
+        <button class="filter-btn" data-filter="pinged">Pinged</button>
+        <button class="filter-btn" data-filter="author-active">Author Active</button>
+        <div id="custom-tag-filters"></div>
       </div>
       
-      <div class="groups-section">
-        <div class="groups-header">
-          <span>Custom Groups</span>
-          <button id="add-group-btn" class="add-group-btn" title="Add Group">+</button>
+      <div class="tag-management">
+        <div class="tag-management-header">
+          <span>Custom Tags</span>
+          <button id="add-tag-btn" class="add-tag-btn" title="Add Custom Tag">+</button>
+          <button id="manage-tags-btn" class="manage-tags-btn" title="Manage Tags">⚙️</button>
         </div>
-        <div class="custom-groups" id="custom-groups"></div>
+        <div class="tag-assignments" id="tag-assignments">
+          <p class="tag-help">Drag PRs here to assign custom tags</p>
+        </div>
       </div>
       
       <div class="pr-list" id="pr-list">
