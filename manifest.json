@@ -6,8 +6,9 @@
   "permissions": [
     "storage",
     "alarms",
-    "activeTab",
-    "sidePanel"
+    "activeTab", 
+    "sidePanel",
+    "identity"
   ],
   "host_permissions": [
     "https://api.github.com/*",

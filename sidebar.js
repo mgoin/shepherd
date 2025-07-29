@@ -13,6 +13,7 @@ class PRShepherdSidebar {
     this.searchTerm = '';
     this.reviewerOnlyMode = true;
     this.includeTeamRequests = false;
+    this.oauthClient = new GitHubOAuth();
     
     this.init();
   }
@@ -30,37 +31,74 @@ class PRShepherdSidebar {
   }
 
   async checkAuth() {
-    const token = await this.getStoredToken();
     const authSection = document.getElementById('auth-section');
     const mainContent = document.getElementById('main-content');
     
-    if (token) {
-      authSection.style.display = 'none';
-      mainContent.style.display = 'flex';
-      this.token = token;
-    } else {
+    try {
+      // Check OAuth authentication first
+      const authResult = await this.oauthClient.isAuthenticated();
+      if (authResult && authResult.authenticated) {
+        this.currentUser = authResult.user;
+        this.token = await this.oauthClient.getAccessToken();
+        authSection.style.display = 'none';
+        mainContent.style.display = 'flex';
+        return;
+      }
+
+      // Fallback to check legacy PAT
+      const currentAuth = await this.oauthClient.getCurrentAuth();
+      if (currentAuth && currentAuth.token) {
+        this.token = currentAuth.token;
+        
+        // Validate the token and get user info
+        const response = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': `token ${this.token}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        });
+
+        if (response.ok) {
+          this.currentUser = await response.json();
+          authSection.style.display = 'none';
+          mainContent.style.display = 'flex';
+          return;
+        }
+      }
+
+      // No valid authentication found
       authSection.style.display = 'flex';
       mainContent.style.display = 'none';
+      this.token = null;
+      this.currentUser = null;
+    } catch (error) {
+      console.error('Auth check failed:', error);
+      authSection.style.display = 'flex';
+      mainContent.style.display = 'none';
+      this.token = null;
+      this.currentUser = null;
     }
   }
 
   async getStoredToken() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(['github_token'], (result) => {
-        resolve(result.github_token);
-      });
-    });
+    const currentAuth = await this.oauthClient.getCurrentAuth();
+    return currentAuth ? currentAuth.token : null;
   }
 
   setupEventListeners() {
-    // Auth button
-    document.getElementById('auth-btn').addEventListener('click', () => {
-      this.handleAuth();
+    // OAuth button
+    document.getElementById('oauth-btn').addEventListener('click', () => {
+      this.handleOAuthFlow();
+    });
+
+    // PAT button
+    document.getElementById('pat-btn').addEventListener('click', () => {
+      this.handlePATFlow();
     });
 
     // Settings button
     document.getElementById('settings-btn').addEventListener('click', () => {
-      this.handleAuth();
+      this.showAuthSettings();
     });
 
     // Refresh button
@@ -121,7 +159,26 @@ class PRShepherdSidebar {
     }, 5 * 60 * 1000);
   }
 
-  async handleAuth() {
+  async handleOAuthFlow() {
+    try {
+      this.showAuthStatus('Starting GitHub authentication...');
+      
+      const authResult = await this.oauthClient.authenticate();
+      
+      if (authResult && authResult.authenticated) {
+        this.hideAuthStatus();
+        await this.checkAuth();
+        await this.loadPRs();
+      } else {
+        this.showAuthError('Authentication failed. Please try again.');
+      }
+    } catch (error) {
+      console.error('Device Flow authentication failed:', error);
+      this.showAuthError(`Authentication failed: ${error.message}`);
+    }
+  }
+
+  async handlePATFlow() {
     const token = prompt(
       '🔑 GitHub Personal Access Token Setup\n\n' +
       '1. Go to: https://github.com/settings/tokens\n' +
@@ -134,24 +191,82 @@ class PRShepherdSidebar {
     );
     
     if (token && token.trim()) {
-      // Validate token format
-      if (!token.trim().startsWith('ghp_') && !token.trim().startsWith('github_pat_')) {
-        alert('⚠️ Invalid token format. GitHub tokens start with "ghp_" or "github_pat_"');
-        return;
+      try {
+        // Validate token format
+        if (!token.trim().startsWith('ghp_') && !token.trim().startsWith('github_pat_')) {
+          alert('⚠️ Invalid token format. GitHub tokens start with "ghp_" or "github_pat_"');
+          return;
+        }
+        
+        this.showAuthStatus('Validating token...');
+        
+        const authResult = await this.oauthClient.authenticateWithPAT(token.trim());
+        
+        if (authResult && authResult.authenticated) {
+          this.hideAuthStatus();
+          await this.checkAuth();
+          await this.loadPRs();
+        } else {
+          this.showAuthError('Invalid token. Please check your token and try again.');
+        }
+      } catch (error) {
+        console.error('PAT authentication failed:', error);
+        this.showAuthError(`Token validation failed: ${error.message}`);
       }
-      
-      await this.storeToken(token.trim());
-      this.token = token.trim();
-      await this.checkAuth();
-      await this.loadPRs();
     }
   }
 
-  async storeToken(token) {
-    return new Promise((resolve) => {
-      chrome.storage.local.set({ github_token: token }, resolve);
-    });
+  async showAuthSettings() {
+    const currentAuth = await this.oauthClient.getCurrentAuth();
+    
+    if (!currentAuth) {
+      alert('No authentication configured. Please connect to GitHub first.');
+      return;
+    }
+
+    const method = currentAuth.method === 'oauth' ? 'OAuth' : 'Personal Access Token';
+    const action = confirm(
+      `Currently authenticated via ${method}\n\n` +
+      'Would you like to logout and connect a different account?'
+    );
+
+    if (action) {
+      await this.logout();
+    }
   }
+
+  async logout() {
+    try {
+      await this.oauthClient.logout();
+      this.token = null;
+      this.currentUser = null;
+      this.allPRs = [];
+      this.filteredPRs = [];
+      await this.checkAuth();
+    } catch (error) {
+      console.error('Logout failed:', error);
+      alert('Logout failed. Please try again.');
+    }
+  }
+
+  showAuthStatus(message) {
+    const statusElement = document.getElementById('auth-status');
+    const statusText = document.getElementById('auth-status-text');
+    
+    statusText.textContent = message;
+    statusElement.style.display = 'flex';
+  }
+
+  hideAuthStatus() {
+    const statusElement = document.getElementById('auth-status');
+    statusElement.style.display = 'none';
+  }
+
+  showAuthError(message) {
+    this.hideAuthStatus();
+    alert(`❌ ${message}`);
+  }
+
 
   handleFilterClick(e) {
     document.querySelectorAll('.filter-btn').forEach(btn => {
