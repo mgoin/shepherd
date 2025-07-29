@@ -79,18 +79,135 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 24px 16px;
 }
 
 .auth-content {
   text-align: center;
-  padding: 24px;
-  max-width: 280px;
+  max-width: 320px;
+  width: 100%;
 }
 
-.auth-content p {
-  margin-bottom: 16px;
+.auth-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #24292f;
+}
+
+.auth-header p {
+  margin-bottom: 24px;
   color: #656d76;
   line-height: 1.5;
+  font-size: 14px;
+}
+
+.auth-methods {
+  margin-bottom: 20px;
+}
+
+.oauth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  font-weight: 500;
+}
+
+.auth-icon {
+  flex-shrink: 0;
+}
+
+.auth-divider {
+  position: relative;
+  margin: 16px 0;
+  text-align: center;
+}
+
+.auth-divider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: #d1d9e0;
+}
+
+.auth-divider span {
+  background: white;
+  padding: 0 12px;
+  color: #656d76;
+  font-size: 12px;
+}
+
+.btn.secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  background: #f6f8fa;
+  border: 1px solid #d1d9e0;
+  color: #24292f;
+}
+
+.btn.secondary:hover {
+  background: #f3f4f6;
+}
+
+.auth-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  background: #f6f8fa;
+  border-radius: 6px;
+  margin: 16px 0;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #d1d9e0;
+  border-top: 2px solid #0969da;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.auth-help {
+  margin-top: 20px;
+  text-align: left;
+}
+
+.auth-help details {
+  background: #f6f8fa;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.auth-help summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: #24292f;
+  font-size: 13px;
+}
+
+.auth-help ul {
+  margin-top: 8px;
+  padding-left: 16px;
+}
+
+.auth-help li {
+  font-size: 12px;
+  color: #656d76;
+  line-height: 1.4;
+  margin-bottom: 4px;
 }
 
 /* Main Content */

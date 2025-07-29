@@ -48,19 +48,35 @@ class ShepherdBackground {
     });
   }
 
+  async getAuthToken() {
+    const result = await chrome.storage.local.get(['oauth_token', 'github_token']);
+    
+    // Check OAuth token first
+    if (result.oauth_token && result.oauth_token.access_token) {
+      return result.oauth_token.access_token;
+    }
+    
+    // Fallback to PAT
+    if (result.github_token) {
+      return result.github_token;
+    }
+    
+    return null;
+  }
+
   async updatePRData() {
     try {
       console.log('Background: Updating PR data...');
       
-      // Get stored token
-      const result = await chrome.storage.local.get(['github_token']);
-      if (!result.github_token) {
-        console.log('Background: No GitHub token found');
+      // Get stored token (OAuth or PAT)
+      const token = await this.getAuthToken();
+      if (!token) {
+        console.log('Background: No authentication token found');
         return;
       }
 
       // Fetch latest PR data
-      const prs = await this.fetchPRs(result.github_token);
+      const prs = await this.fetchPRs(token);
       
       // Store in cache with timestamp
       await chrome.storage.local.set({
