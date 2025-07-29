@@ -351,7 +351,7 @@ class PRShepherdSidebar {
         return this.getActivityInfo(pr).includes('Recently pinged');
       case 'author-active':
         const activity = this.getActivityInfo(pr);
-        return activity.includes('recent commit') || activity.includes('Author commented');
+        return activity.includes('Recent commits') || activity.includes('Author activity');
       default:
         return true;
     }
@@ -506,7 +506,7 @@ class PRShepherdSidebar {
                   }
                 }
               }
-              commits(last: 5) {
+              commits(last: 1) {
                 nodes {
                   commit {
                     author {
@@ -515,7 +515,6 @@ class PRShepherdSidebar {
                     statusCheckRollup {
                       state
                     }
-                    message
                   }
                 }
               }
@@ -530,22 +529,9 @@ class PRShepherdSidebar {
                   createdAt
                 }
               }
-              comments(last: 10) {
-                nodes {
-                  author {
-                    login
-                  }
-                  createdAt
-                  body
-                }
-              }
-              timelineItems(last: 20, itemTypes: [
+              timelineItems(last: 10, itemTypes: [
                 REVIEW_REQUESTED_EVENT,
-                READY_FOR_REVIEW_EVENT,
-                CONVERT_TO_DRAFT_EVENT,
-                ISSUE_COMMENT,
-                PULL_REQUEST_REVIEW,
-                PULL_REQUEST_COMMIT
+                READY_FOR_REVIEW_EVENT
               ]) {
                 nodes {
                   __typename
@@ -564,29 +550,6 @@ class PRShepherdSidebar {
                     createdAt
                     actor {
                       login
-                    }
-                  }
-                  ... on IssueComment {
-                    createdAt
-                    author {
-                      login
-                    }
-                  }
-                  ... on PullRequestReview {
-                    createdAt
-                    author {
-                      login
-                    }
-                    state
-                  }
-                  ... on PullRequestCommit {
-                    commit {
-                      author {
-                        date
-                      }
-                      committer {
-                        date
-                      }
                     }
                   }
                 }
@@ -793,32 +756,27 @@ class PRShepherdSidebar {
       activities.push('🔔 Recently pinged');
     }
     
-    // Check for recent author activity (commits or comments)
+    // Check for recent author activity (simplified)
     const authorLogin = pr.author.login;
     
-    // Recent commits by author
-    const recentCommits = pr.commits?.nodes?.filter(commit => {
-      const commitDate = new Date(commit.commit.author.date).getTime();
-      return commitDate > threeDaysAgo;
-    }) || [];
-    
-    // Recent comments by author (including review comments from reviews)
-    const recentAuthorComments = [
-      ...(pr.comments?.nodes || []),
-      ...(pr.reviews?.nodes || [])
-    ].filter(item => {
-      const createdAt = new Date(item.createdAt).getTime();
-      const byAuthor = item.author?.login === authorLogin;
-      return byAuthor && createdAt > threeDaysAgo;
-    });
-    
-    if (recentCommits.length > 0) {
-      const commitsText = recentCommits.length === 1 ? 'commit' : 'commits';
-      activities.push(`💻 ${recentCommits.length} recent ${commitsText}`);
+    // Check if there's a recent commit (last commit within 3 days)
+    const lastCommit = pr.commits?.nodes?.[0];
+    if (lastCommit) {
+      const commitDate = new Date(lastCommit.commit.author.date).getTime();
+      if (commitDate > threeDaysAgo) {
+        activities.push('💻 Recent commits');
+      }
     }
     
-    if (recentAuthorComments.length > 0) {
-      activities.push('💬 Author commented');
+    // Check for recent reviews by author
+    const recentAuthorReviews = pr.reviews?.nodes?.filter(review => {
+      const createdAt = new Date(review.createdAt).getTime();
+      const byAuthor = review.author?.login === authorLogin;
+      return byAuthor && createdAt > threeDaysAgo;
+    }) || [];
+    
+    if (recentAuthorReviews.length > 0) {
+      activities.push('💬 Author activity');
     }
     
     // Check if ready for review recently
