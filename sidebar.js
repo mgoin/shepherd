@@ -539,14 +539,6 @@ class PRShepherdSidebar {
                   body
                 }
               }
-              reviewComments(last: 10) {
-                nodes {
-                  author {
-                    login
-                  }
-                  createdAt
-                }
-              }
               timelineItems(last: 20, itemTypes: [
                 REVIEW_REQUESTED_EVENT,
                 READY_FOR_REVIEW_EVENT,
@@ -810,10 +802,9 @@ class PRShepherdSidebar {
       return commitDate > threeDaysAgo;
     }) || [];
     
-    // Recent comments by author
+    // Recent comments by author (including review comments from reviews)
     const recentAuthorComments = [
       ...(pr.comments?.nodes || []),
-      ...(pr.reviewComments?.nodes || []),
       ...(pr.reviews?.nodes || [])
     ].filter(item => {
       const createdAt = new Date(item.createdAt).getTime();
