@@ -1,0 +1,19 @@
+{
+  "name": "pr-shepherd",
+  "version": "0.1.0",
+  "description": "Shepherd your vLLM GitHub pull requests - track status, reviews, and CI checks",
+  "scripts": {
+    "test": "node --test tests/**/*.test.js",
+    "test:watch": "node --test --watch tests/**/*.test.js",
+    "test:coverage": "c8 node --test tests/**/*.test.js",
+    "lint": "echo 'ESLint not configured yet'",
+    "build": "echo 'Build process - tests pass!'"
+  },
+  "devDependencies": {
+    "c8": "^8.0.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "module"
+}

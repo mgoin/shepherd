@@ -1,0 +1,111 @@
+{
+  "name": "pr-shepherd",
+  "version": "0.1.0",
+  "description": "Shepherd your vLLM GitHub pull requests - track status, reviews, and CI checks",
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest --testPathPattern=unit",
+    "test:integration": "jest --testPathPattern=integration",
+    "test:e2e": "jest --testPathPattern=e2e",
+    "test:ci": "jest --coverage --watchAll=false --ci",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "build": "npm run lint && npm run test:ci",
+    "dev": "npm run test:watch"
+  },
+  "devDependencies": {
+    "@jest/globals": "^27.5.1",
+    "@types/chrome": "^0.0.254",
+    "@types/jest": "^27.5.2",
+    "eslint": "^8.54.0",
+    "eslint-plugin-jest": "^27.6.0",
+    "jest": "^27.5.1",
+    "jest-chrome": "^0.8.0",
+    "jest-environment-jsdom": "^27.5.1",
+    "jest-fetch-mock": "^3.0.3",
+    "puppeteer": "^21.5.2",
+    "sinon": "^17.0.1",
+    "sinon-chrome": "^3.0.1"
+  },
+  "jest": {
+    "testEnvironment": "jsdom",
+    "setupFilesAfterEnv": [
+      "<rootDir>/tests/setup.js"
+    ],
+    "moduleNameMapping": {
+      "^@/(.*)$": "<rootDir>/$1"
+    },
+    "collectCoverageFrom": [
+      "*.js",
+      "!manifest.json",
+      "!jest.config.js",
+      "!tests/**/*"
+    ],
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 70,
+        "functions": 75,
+        "lines": 80,
+        "statements": 80
+      }
+    },
+    "testMatch": [
+      "**/tests/**/*.test.js",
+      "**/tests/**/*.spec.js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/coverage/"
+    ]
+  },
+  "eslintConfig": {
+    "env": {
+      "browser": true,
+      "es2021": true,
+      "jest": true,
+      "webextensions": true
+    },
+    "extends": [
+      "eslint:recommended",
+      "plugin:jest/recommended"
+    ],
+    "plugins": [
+      "jest"
+    ],
+    "rules": {
+      "no-unused-vars": "warn",
+      "no-console": "off",
+      "jest/no-disabled-tests": "warn",
+      "jest/no-focused-tests": "error",
+      "jest/no-identical-title": "error",
+      "jest/prefer-to-have-length": "warn",
+      "jest/valid-expect": "error"
+    },
+    "globals": {
+      "chrome": "readonly"
+    }
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/pr-shepherd.git"
+  },
+  "keywords": [
+    "chrome-extension",
+    "github",
+    "pull-requests",
+    "code-review",
+    "vllm"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

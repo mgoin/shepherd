@@ -115,6 +115,23 @@ class ShepherdBackground {
                   commit {
                     statusCheckRollup {
                       state
+                      contexts(first: 20) {
+                        nodes {
+                          __typename
+                          ... on CheckRun {
+                            name
+                            conclusion
+                            status
+                            detailsUrl
+                          }
+                          ... on StatusContext {
+                            context
+                            state
+                            targetUrl
+                            description
+                          }
+                        }
+                      }
                     }
                   }
                 }

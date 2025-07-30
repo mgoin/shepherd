@@ -9,7 +9,8 @@ class PRShepherdSidebar {
     this.allPRs = [];
     this.filteredPRs = [];
     this.currentUser = null;
-    this.customGroups = [];
+    this.customTags = [];
+    this.prTagAssignments = new Map(); // Map PR numbers to custom tags
     this.searchTerm = '';
     this.reviewerOnlyMode = true;
     this.includeTeamRequests = false;
@@ -19,7 +20,7 @@ class PRShepherdSidebar {
   }
 
   async init() {
-    await this.loadCustomGroups();
+    await this.loadCustomTags();
     await this.checkAuth();
     this.setupEventListeners();
     
@@ -132,15 +133,38 @@ class PRShepherdSidebar {
       });
     });
 
-    // Add group button
-    document.getElementById('add-group-btn').addEventListener('click', () => {
-      this.createCustomGroup();
+    // Add tag button
+    document.getElementById('add-tag-btn').addEventListener('click', () => {
+      this.createCustomTag();
+    });
+
+    // Manage tags button
+    document.getElementById('manage-tags-btn').addEventListener('click', () => {
+      this.manageCustomTags();
     });
 
     // Listen for background updates
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'pr-updated') {
         this.loadPRsFromCache();
+      }
+    });
+
+    // CI status expansion toggle
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.ci-summary')) {
+        const statusContainer = e.target.closest('.ci-status-detailed');
+        const details = statusContainer?.querySelector('.ci-details');
+        if (details) {
+          const isVisible = details.style.display !== 'none';
+          details.style.display = isVisible ? 'none' : 'block';
+          
+          // Update summary visual state
+          const summary = statusContainer.querySelector('.ci-summary');
+          if (summary) {
+            summary.classList.toggle('expanded', !isVisible);
+          }
+        }
       }
     });
   }
@@ -329,6 +353,11 @@ class PRShepherdSidebar {
     const isDraft = pr.isDraft;
     const reviewDecision = pr.reviewDecision || '';
     
+    // Check if it's a custom tag filter
+    if (this.customTags.some(tag => tag.name === filter)) {
+      return pr.customTag?.name === filter;
+    }
+    
     switch (filter) {
       case 'ready':
         return !isDraft && pr.state === 'OPEN' && reviewDecision !== 'APPROVED';
@@ -336,6 +365,11 @@ class PRShepherdSidebar {
         return isDraft;
       case 'finished':
         return pr.state === 'MERGED' || pr.state === 'CLOSED' || reviewDecision === 'APPROVED';
+      case 'pinged':
+        return this.getActivityInfo(pr).includes('Recently pinged');
+      case 'author-active':
+        const activity = this.getActivityInfo(pr);
+        return activity.includes('Recent commits') || activity.includes('Author activity');
       default:
         return true;
     }
@@ -493,8 +527,37 @@ class PRShepherdSidebar {
               commits(last: 1) {
                 nodes {
                   commit {
+                    author {
+                      date
+                    }
                     statusCheckRollup {
                       state
+                      contexts(first: 20) {
+                        nodes {
+                          __typename
+                          ... on CheckRun {
+                            name
+                            conclusion
+                            status
+                            detailsUrl
+                            completedAt
+                            checkSuite {
+                              app {
+                                name
+                              }
+                            }
+                          }
+                          ... on StatusContext {
+                            context
+                            state
+                            targetUrl
+                            description
+                            creator {
+                              login
+                            }
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -506,6 +569,32 @@ class PRShepherdSidebar {
                   state
                   author {
                     login
+                  }
+                  createdAt
+                }
+              }
+              timelineItems(last: 10, itemTypes: [
+                REVIEW_REQUESTED_EVENT,
+                READY_FOR_REVIEW_EVENT
+              ]) {
+                nodes {
+                  __typename
+                  ... on ReviewRequestedEvent {
+                    createdAt
+                    actor {
+                      login
+                    }
+                    requestedReviewer {
+                      ... on User {
+                        login
+                      }
+                    }
+                  }
+                  ... on ReadyForReviewEvent {
+                    createdAt
+                    actor {
+                      login
+                    }
                   }
                 }
               }
@@ -569,10 +658,18 @@ class PRShepherdSidebar {
   }
 
   renderPRs(prs) {
-    this.allPRs = prs;
+    this.allPRs = prs.map(pr => {
+      // Attach custom tag if assigned
+      const assignedTag = this.prTagAssignments.get(pr.number);
+      if (assignedTag) {
+        pr.customTag = this.customTags.find(tag => tag.name === assignedTag);
+      }
+      return pr;
+    });
     this.currentFilter = 'all';
     this.applyFilters();
-    this.renderCustomGroups();
+    this.renderCustomTagFilters();
+    this.renderTagAssignments();
   }
 
   renderFilteredPRs() {
@@ -599,8 +696,10 @@ class PRShepherdSidebar {
   renderPR(pr) {
     const statusIcon = this.getStatusIcon(pr);
     const reviewStatus = this.getReviewStatus(pr);
-    const ciStatus = this.getCIStatus(pr);
+    const detailedCIStatus = this.getDetailedCIDisplay(pr);
     const labels = this.renderLabels(pr.labels.nodes);
+    const activityInfo = this.getActivityInfo(pr);
+    const assignedTag = pr.customTag ? `<span class="custom-tag" style="background-color: ${pr.customTag.color}">${pr.customTag.name}</span>` : '';
     
     return `
       <div class="pr-item" 
@@ -608,6 +707,7 @@ class PRShepherdSidebar {
            data-status="${pr.state}" 
            data-draft="${pr.isDraft}"
            data-review-decision="${pr.reviewDecision || ''}"
+           data-custom-tag="${pr.customTag?.name || ''}"
            draggable="true">
         <div class="pr-header">
           <div class="pr-title">
@@ -616,19 +716,21 @@ class PRShepherdSidebar {
               #${pr.number} ${pr.title}
             </a>
             ${pr.isDraft ? '<span class="draft-badge">DRAFT</span>' : ''}
+            ${assignedTag}
           </div>
           <div class="pr-meta">
             by ${pr.author.login} • ${this.formatDate(pr.updatedAt)}
           </div>
         </div>
         <div class="pr-status">
-          <div class="status-item">
-            ${statusIcon} ${ciStatus}
+          <div class="status-item ci-status-container">
+            ${statusIcon} ${detailedCIStatus}
           </div>
           <div class="status-item">
             ${reviewStatus}
           </div>
         </div>
+        ${activityInfo ? `<div class="pr-activity">${activityInfo}</div>` : ''}
         ${labels ? `<div class="pr-labels">${labels}</div>` : ''}
       </div>
     `;
@@ -647,10 +749,104 @@ class PRShepherdSidebar {
   }
 
   getCIStatus(pr) {
-    const ciState = pr.commits.nodes[0]?.commit?.statusCheckRollup?.state;
-    if (!ciState) return 'unknown';
+    const rollup = pr.commits.nodes[0]?.commit?.statusCheckRollup;
+    if (!rollup) return { state: 'unknown', details: [] };
     
-    return ciState.toLowerCase().replace('_', ' ');
+    const state = rollup.state ? rollup.state.toLowerCase().replace('_', ' ') : 'unknown';
+    const contexts = rollup.contexts?.nodes || [];
+    
+    // Process detailed check information
+    const details = contexts.map(context => {
+      if (context.__typename === 'CheckRun') {
+        return {
+          type: 'check_run',
+          name: context.name,
+          status: context.status?.toLowerCase() || 'unknown',
+          conclusion: context.conclusion?.toLowerCase() || null,
+          app: context.checkSuite?.app?.name || 'GitHub',
+          url: context.detailsUrl,
+          completedAt: context.completedAt
+        };
+      } else if (context.__typename === 'StatusContext') {
+        return {
+          type: 'status',
+          name: context.context,
+          state: context.state?.toLowerCase() || 'unknown',
+          description: context.description,
+          creator: context.creator?.login || 'Unknown',
+          url: context.targetUrl
+        };
+      }
+      return null;
+    }).filter(Boolean);
+    
+    return { state, details };
+  }
+
+  getDetailedCIDisplay(pr) {
+    const { state, details } = this.getCIStatus(pr);
+    
+    if (!details.length) {
+      return `<span class="ci-state ci-${state}">${this.getCIIcon(state)} ${state}</span>`;
+    }
+    
+    // Group checks by status/conclusion
+    const grouped = details.reduce((acc, check) => {
+      const status = check.conclusion || check.state || check.status;
+      if (!acc[status]) acc[status] = [];
+      acc[status].push(check);
+      return acc;
+    }, {});
+    
+    // Create summary display
+    const summaryParts = Object.entries(grouped).map(([status, checks]) => {
+      const icon = this.getCIIcon(status);
+      const count = checks.length;
+      return `${icon} ${count}`;
+    });
+    
+    const detailsHtml = details.map(check => {
+      const status = check.conclusion || check.state || check.status;
+      const icon = this.getCIIcon(status);
+      const url = check.url ? `href="${check.url}" target="_blank"` : '';
+      const title = check.description || `${check.name} - ${status}`;
+      
+      return `<div class="ci-check" title="${title}">
+        <a ${url} class="ci-check-link">
+          ${icon} <span class="ci-check-name">${check.name}</span>
+          <span class="ci-check-status">${status}</span>
+        </a>
+      </div>`;
+    }).join('');
+    
+    return `
+      <div class="ci-status-detailed">
+        <div class="ci-summary" title="Click to expand details">
+          <span class="ci-state ci-${state}">${this.getCIIcon(state)} ${summaryParts.join(' ')}</span>
+        </div>
+        <div class="ci-details" style="display: none;">
+          ${detailsHtml}
+        </div>
+      </div>
+    `;
+  }
+  
+  getCIIcon(state) {
+    switch (state) {
+      case 'success': return '✅';
+      case 'failure': return '❌';
+      case 'error': return '🚫';
+      case 'pending': return '🟡';
+      case 'in_progress': return '🔄';
+      case 'queued': return '⏳';
+      case 'completed': return '✅';
+      case 'cancelled': return '⚪';
+      case 'skipped': return '⏭️';
+      case 'neutral': return '⚪';
+      case 'timed_out': return '⏰';
+      case 'action_required': return '⚠️';
+      default: return '❓';
+    }
   }
 
   getReviewStatus(pr) {
@@ -673,6 +869,68 @@ class PRShepherdSidebar {
     if (reviewCount === 0) return '⏳ No reviews';
     
     return `💬 ${reviewCount} review${reviewCount > 1 ? 's' : ''}`;
+  }
+
+  getActivityInfo(pr) {
+    if (!this.currentUser) return '';
+    
+    const now = Date.now();
+    const oneDayAgo = now - (24 * 60 * 60 * 1000);
+    const threeDaysAgo = now - (3 * 24 * 60 * 60 * 1000);
+    
+    const activities = [];
+    
+    // Check for recent pings (review requests targeting me)
+    const recentPings = pr.timelineItems?.nodes?.filter(item => {
+      if (item.__typename === 'ReviewRequestedEvent') {
+        const createdAt = new Date(item.createdAt).getTime();
+        const targetedMe = item.requestedReviewer?.login === this.currentUser.login;
+        return targetedMe && createdAt > oneDayAgo;
+      }
+      return false;
+    }) || [];
+    
+    if (recentPings.length > 0) {
+      activities.push('🔔 Recently pinged');
+    }
+    
+    // Check for recent author activity (simplified)
+    const authorLogin = pr.author.login;
+    
+    // Check if there's a recent commit (last commit within 3 days)
+    const lastCommit = pr.commits?.nodes?.[0];
+    if (lastCommit) {
+      const commitDate = new Date(lastCommit.commit.author.date).getTime();
+      if (commitDate > threeDaysAgo) {
+        activities.push('💻 Recent commits');
+      }
+    }
+    
+    // Check for recent reviews by author
+    const recentAuthorReviews = pr.reviews?.nodes?.filter(review => {
+      const createdAt = new Date(review.createdAt).getTime();
+      const byAuthor = review.author?.login === authorLogin;
+      return byAuthor && createdAt > threeDaysAgo;
+    }) || [];
+    
+    if (recentAuthorReviews.length > 0) {
+      activities.push('💬 Author activity');
+    }
+    
+    // Check if ready for review recently
+    const recentReadyForReview = pr.timelineItems?.nodes?.filter(item => {
+      if (item.__typename === 'ReadyForReviewEvent') {
+        const createdAt = new Date(item.createdAt).getTime();
+        return createdAt > oneDayAgo;
+      }
+      return false;
+    }) || [];
+    
+    if (recentReadyForReview.length > 0) {
+      activities.push('✅ Ready for review');
+    }
+    
+    return activities.length > 0 ? activities.join(' • ') : '';
   }
 
   renderLabels(labels) {
@@ -728,98 +986,117 @@ class PRShepherdSidebar {
     return date.toLocaleTimeString();
   }
 
-  // Custom Groups Functionality
-  async loadCustomGroups() {
+  // Custom Tags Functionality
+  async loadCustomTags() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['custom_groups'], (result) => {
-        this.customGroups = result.custom_groups || [];
+      chrome.storage.local.get(['custom_tags', 'pr_tag_assignments'], (result) => {
+        this.customTags = result.custom_tags || [];
+        const assignments = result.pr_tag_assignments || {};
+        this.prTagAssignments = new Map(Object.entries(assignments).map(([k, v]) => [parseInt(k), v]));
         resolve();
       });
     });
   }
 
-  async saveCustomGroups() {
+  async saveCustomTags() {
     return new Promise((resolve) => {
-      chrome.storage.local.set({ custom_groups: this.customGroups }, resolve);
+      const assignmentsObj = Object.fromEntries(this.prTagAssignments);
+      chrome.storage.local.set({ 
+        custom_tags: this.customTags,
+        pr_tag_assignments: assignmentsObj
+      }, resolve);
     });
   }
 
-  createCustomGroup() {
-    const name = prompt('Enter group name:');
+  createCustomTag() {
+    const name = prompt('Enter tag name:');
     if (name && name.trim()) {
-      const group = {
-        id: Date.now().toString(),
-        name: name.trim(),
-        prNumbers: []
-      };
-      this.customGroups.push(group);
-      this.saveCustomGroups();
-      this.renderCustomGroups();
+      const color = prompt('Enter tag color (hex, e.g. #ff6b6b):', '#0969da');
+      if (color) {
+        const tag = {
+          id: Date.now().toString(),
+          name: name.trim(),
+          color: color.trim()
+        };
+        this.customTags.push(tag);
+        this.saveCustomTags();
+        this.renderCustomTagFilters();
+        this.renderTagAssignments();
+      }
     }
   }
 
-  renderCustomGroups() {
-    const container = document.getElementById('custom-groups');
+  renderCustomTagFilters() {
+    const container = document.getElementById('custom-tag-filters');
     
-    if (this.customGroups.length === 0) {
+    if (this.customTags.length === 0) {
       container.innerHTML = '';
       return;
     }
 
-    const groupsHTML = this.customGroups.map(group => this.renderCustomGroup(group)).join('');
-    container.innerHTML = groupsHTML;
-    this.setupGroupEventListeners();
+    const filtersHTML = this.customTags.map(tag => 
+      `<button class="filter-btn" data-filter="${tag.name}" style="border-color: ${tag.color}; color: ${tag.color};">
+        ${tag.name}
+      </button>`
+    ).join('');
+    
+    container.innerHTML = filtersHTML;
+    
+    // Add event listeners for custom tag filters
+    container.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        this.handleFilterClick(e);
+      });
+    });
   }
 
-  renderCustomGroup(group) {
-    const prsInGroup = group.prNumbers.map(prNumber => {
+  renderTagAssignments() {
+    const container = document.getElementById('tag-assignments');
+    
+    if (this.customTags.length === 0) {
+      container.innerHTML = '<p class="tag-help">Create custom tags to organize your PRs</p>';
+      return;
+    }
+
+    const assignedPRs = Array.from(this.prTagAssignments.entries()).map(([prNumber, tagName]) => {
       const pr = this.allPRs.find(p => p.number === prNumber);
-      return pr ? `
-        <div class="group-pr-item">
-          #${pr.number} ${pr.title.substring(0, 30)}${pr.title.length > 30 ? '...' : ''}
-          <button class="group-pr-remove" onclick="prShepherd.removePRFromGroup('${group.id}', ${pr.number})">×</button>
-        </div>
-      ` : '';
+      const tag = this.customTags.find(t => t.name === tagName);
+      if (pr && tag) {
+        return `
+          <div class="assigned-pr-item" style="border-left-color: ${tag.color};">
+            <span class="custom-tag" style="background-color: ${tag.color};">${tag.name}</span>
+            #${pr.number} ${pr.title.substring(0, 25)}${pr.title.length > 25 ? '...' : ''}
+            <button class="remove-tag-btn" onclick="prShepherd.removePRTag(${pr.number})">×</button>
+          </div>
+        `;
+      }
+      return '';
     }).filter(html => html).join('');
 
-    return `
-      <div class="custom-group" data-group-id="${group.id}">
-        <div class="group-header">
-          <span class="group-title">${group.name}</span>
-          <div class="group-actions">
-            <span class="group-count">${group.prNumbers.length}</span>
-            <button class="group-delete-btn" onclick="prShepherd.deleteGroup('${group.id}')">×</button>
-          </div>
-        </div>
-        <div class="group-content" data-group-id="${group.id}">
-          ${prsInGroup}
-        </div>
-      </div>
-    `;
+    container.innerHTML = assignedPRs || '<p class="tag-help">Drag PRs here to assign custom tags</p>';
+    this.setupTagDropZone();
   }
 
-  setupGroupEventListeners() {
-    // Setup drop zones for custom groups
-    document.querySelectorAll('.group-content').forEach(groupContent => {
-      groupContent.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        groupContent.classList.add('drag-over');
-      });
+  setupTagDropZone() {
+    const dropZone = document.getElementById('tag-assignments');
+    
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
 
-      groupContent.addEventListener('dragleave', (e) => {
-        if (!groupContent.contains(e.relatedTarget)) {
-          groupContent.classList.remove('drag-over');
-        }
-      });
+    dropZone.addEventListener('dragleave', (e) => {
+      if (!dropZone.contains(e.relatedTarget)) {
+        dropZone.classList.remove('drag-over');
+      }
+    });
 
-      groupContent.addEventListener('drop', (e) => {
-        e.preventDefault();
-        groupContent.classList.remove('drag-over');
-        
-        const prNumber = parseInt(e.dataTransfer.getData('text/plain'));
-        const groupId = groupContent.dataset.groupId;
-        this.addPRToGroup(groupId, prNumber);
-      });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      
+      const prNumber = parseInt(e.dataTransfer.getData('text/plain'));
+      this.assignTagToPR(prNumber);
     });
   }
 
@@ -837,29 +1114,64 @@ class PRShepherdSidebar {
     });
   }
 
-  addPRToGroup(groupId, prNumber) {
-    const group = this.customGroups.find(g => g.id === groupId);
-    if (group && !group.prNumbers.includes(prNumber)) {
-      group.prNumbers.push(prNumber);
-      this.saveCustomGroups();
-      this.renderCustomGroups();
+  assignTagToPR(prNumber) {
+    if (this.customTags.length === 0) {
+      alert('Please create custom tags first');
+      return;
+    }
+
+    const tagOptions = this.customTags.map((tag, index) => `${index + 1}. ${tag.name}`).join('\n');
+    const choice = prompt(`Select a tag for PR #${prNumber}:\n\n${tagOptions}\n\nEnter number:`);
+    
+    if (choice) {
+      const tagIndex = parseInt(choice) - 1;
+      if (tagIndex >= 0 && tagIndex < this.customTags.length) {
+        const selectedTag = this.customTags[tagIndex];
+        this.prTagAssignments.set(prNumber, selectedTag.name);
+        this.saveCustomTags();
+        this.renderPRs(this.allPRs); // Re-render to show the tag
+      }
     }
   }
 
-  removePRFromGroup(groupId, prNumber) {
-    const group = this.customGroups.find(g => g.id === groupId);
-    if (group) {
-      group.prNumbers = group.prNumbers.filter(num => num !== prNumber);
-      this.saveCustomGroups();
-      this.renderCustomGroups();
-    }
+  removePRTag(prNumber) {
+    this.prTagAssignments.delete(prNumber);
+    this.saveCustomTags();
+    this.renderPRs(this.allPRs); // Re-render to remove the tag
   }
 
-  deleteGroup(groupId) {
-    if (confirm('Delete this group?')) {
-      this.customGroups = this.customGroups.filter(g => g.id !== groupId);
-      this.saveCustomGroups();
-      this.renderCustomGroups();
+  manageCustomTags() {
+    if (this.customTags.length === 0) {
+      alert('No custom tags created yet. Click the + button to create one.');
+      return;
+    }
+
+    const tagList = this.customTags.map((tag, index) => 
+      `${index + 1}. ${tag.name} (${tag.color})`
+    ).join('\n');
+    
+    const action = prompt(`Custom Tags:\n\n${tagList}\n\nEnter tag number to delete, or 'cancel':`);
+    
+    if (action && action !== 'cancel') {
+      const tagIndex = parseInt(action) - 1;
+      if (tagIndex >= 0 && tagIndex < this.customTags.length) {
+        const tagToDelete = this.customTags[tagIndex];
+        if (confirm(`Delete tag "${tagToDelete.name}"? This will remove it from all assigned PRs.`)) {
+          // Remove tag assignments
+          for (const [prNumber, tagName] of this.prTagAssignments.entries()) {
+            if (tagName === tagToDelete.name) {
+              this.prTagAssignments.delete(prNumber);
+            }
+          }
+          
+          // Remove tag
+          this.customTags.splice(tagIndex, 1);
+          this.saveCustomTags();
+          this.renderCustomTagFilters();
+          this.renderTagAssignments();
+          this.renderPRs(this.allPRs);
+        }
+      }
     }
   }
 }
