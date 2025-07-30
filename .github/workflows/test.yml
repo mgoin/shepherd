@@ -193,7 +193,7 @@ jobs:
         ls -la pr-shepherd.zip
         
     - name: 📤 Upload build artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: pr-shepherd-extension
         path: pr-shepherd.zip
