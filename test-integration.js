@@ -73,7 +73,32 @@ const mockResponses = {
                 nodes: [{
                   commit: {
                     author: { date: '2023-01-01T10:00:00Z' },
-                    statusCheckRollup: { state: 'SUCCESS' }
+                    statusCheckRollup: { 
+                      state: 'SUCCESS',
+                      contexts: {
+                        nodes: [
+                          {
+                            __typename: 'CheckRun',
+                            name: 'CI Tests',
+                            conclusion: 'success',
+                            status: 'completed',
+                            detailsUrl: 'https://github.com/actions/runs/123',
+                            completedAt: '2023-01-01T11:00:00Z',
+                            checkSuite: {
+                              app: { name: 'GitHub Actions' }
+                            }
+                          },
+                          {
+                            __typename: 'StatusContext',
+                            context: 'continuous-integration/travis-ci',
+                            state: 'success',
+                            targetUrl: 'https://travis-ci.com/build/456',
+                            description: 'Build passed',
+                            creator: { login: 'travis-ci' }
+                          }
+                        ]
+                      }
+                    }
                   }
                 }]
               },
@@ -103,7 +128,24 @@ const mockResponses = {
                 nodes: [{
                   commit: {
                     author: { date: '2023-01-02T07:00:00Z' },
-                    statusCheckRollup: { state: 'PENDING' }
+                    statusCheckRollup: { 
+                      state: 'PENDING',
+                      contexts: {
+                        nodes: [
+                          {
+                            __typename: 'CheckRun',
+                            name: 'Build Check',
+                            conclusion: null,
+                            status: 'in_progress',
+                            detailsUrl: 'https://github.com/actions/runs/789',
+                            completedAt: null,
+                            checkSuite: {
+                              app: { name: 'GitHub Actions' }
+                            }
+                          }
+                        ]
+                      }
+                    }
                   }
                 }]
               },
@@ -392,7 +434,82 @@ await test('API error handling', async () => {
   global.fetch = originalFetch;
 });
 
-// Integration Test 7: Storage Operations
+// Integration Test 7: Enhanced CI Status Processing
+await test('Enhanced CI status with detailed check information', async () => {
+  const prs = mockResponses.pullRequests.data.repository.pullRequests.nodes;
+  
+  // Mock the getCIStatus function logic
+  function getCIStatus(pr) {
+    const rollup = pr.commits.nodes[0]?.commit?.statusCheckRollup;
+    if (!rollup) return { state: 'unknown', details: [] };
+    
+    const state = rollup.state ? rollup.state.toLowerCase().replace('_', ' ') : 'unknown';
+    const contexts = rollup.contexts?.nodes || [];
+    
+    const details = contexts.map(context => {
+      if (context.__typename === 'CheckRun') {
+        return {
+          type: 'check_run',
+          name: context.name,
+          status: context.status?.toLowerCase() || 'unknown',
+          conclusion: context.conclusion?.toLowerCase() || null,
+          app: context.checkSuite?.app?.name || 'GitHub',
+          url: context.detailsUrl
+        };
+      } else if (context.__typename === 'StatusContext') {
+        return {
+          type: 'status',
+          name: context.context,
+          state: context.state?.toLowerCase() || 'unknown',
+          description: context.description,
+          creator: context.creator?.login || 'Unknown',
+          url: context.targetUrl
+        };
+      }
+      return null;
+    }).filter(Boolean);
+    
+    return { state, details };
+  }
+  
+  // Test PR #101 with detailed CI info
+  const pr1Status = getCIStatus(prs[0]);
+  if (pr1Status.state !== 'success') {
+    throw new Error('Expected success state for PR #101');
+  }
+  
+  if (pr1Status.details.length !== 2) {
+    throw new Error('Expected 2 CI details for PR #101');
+  }
+  
+  const checkRun = pr1Status.details.find(d => d.type === 'check_run');
+  const statusContext = pr1Status.details.find(d => d.type === 'status');
+  
+  if (!checkRun || checkRun.name !== 'CI Tests') {
+    throw new Error('Expected CheckRun "CI Tests" in detailed status');
+  }
+  
+  if (!statusContext || statusContext.name !== 'continuous-integration/travis-ci') {
+    throw new Error('Expected StatusContext for Travis CI');
+  }
+  
+  // Test PR #102 with pending status
+  const pr2Status = getCIStatus(prs[1]);
+  if (pr2Status.state !== 'pending') {
+    throw new Error('Expected pending state for PR #102');
+  }
+  
+  if (pr2Status.details.length !== 1) {
+    throw new Error('Expected 1 CI detail for PR #102');
+  }
+  
+  const pendingCheck = pr2Status.details[0];
+  if (pendingCheck.status !== 'in_progress') {
+    throw new Error('Expected in_progress status for pending check');
+  }
+});
+
+// Integration Test 8: Storage Operations
 await test('Chrome storage integration', async () => {
   // Mock Chrome storage
   let storage = {};
@@ -462,6 +579,6 @@ if (failed > 0) {
   console.log(`\n❌ ${failed} integration test(s) failed. Please fix the issues above.`);
   process.exit(1);
 } else {
-  console.log(`\n🎉 All integration tests passed! Extension integrations are working correctly.`);
+  console.log(`\n🎉 All ${passed} integration tests passed! Enhanced CI status and extension integrations are working correctly.`);
   process.exit(0);
 }

@@ -544,6 +544,109 @@ body {
   gap: 3px;
 }
 
+/* Detailed CI Status */
+.ci-status-container {
+  flex: 1;
+  min-width: 0;
+}
+
+.ci-status-detailed {
+  position: relative;
+}
+
+.ci-summary {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ci-summary:hover {
+  background-color: #f6f8fa;
+}
+
+.ci-summary.expanded {
+  background-color: #e6f3ff;
+}
+
+.ci-state {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ci-state.ci-success {
+  color: #1a7f37;
+}
+
+.ci-state.ci-failure,
+.ci-state.ci-error {
+  color: #d1242f;
+}
+
+.ci-state.ci-pending,
+.ci-state.ci-in_progress {
+  color: #bf8700;
+}
+
+.ci-state.ci-unknown {
+  color: #656d76;
+}
+
+.ci-details {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.2);
+  z-index: 100;
+  margin-top: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.ci-check {
+  border-bottom: 1px solid #f6f8fa;
+}
+
+.ci-check:last-child {
+  border-bottom: none;
+}
+
+.ci-check-link {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  text-decoration: none;
+  color: inherit;
+  gap: 8px;
+  transition: background-color 0.2s;
+}
+
+.ci-check-link:hover {
+  background-color: #f6f8fa;
+  text-decoration: none;
+  color: inherit;
+}
+
+.ci-check-name {
+  flex: 1;
+  font-weight: 500;
+  font-size: 11px;
+}
+
+.ci-check-status {
+  font-size: 10px;
+  color: #656d76;
+  text-transform: capitalize;
+}
+
 /* Activity Info */
 .pr-activity {
   font-size: 10px;

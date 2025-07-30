@@ -149,6 +149,24 @@ class PRShepherdSidebar {
         this.loadPRsFromCache();
       }
     });
+
+    // CI status expansion toggle
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.ci-summary')) {
+        const statusContainer = e.target.closest('.ci-status-detailed');
+        const details = statusContainer?.querySelector('.ci-details');
+        if (details) {
+          const isVisible = details.style.display !== 'none';
+          details.style.display = isVisible ? 'none' : 'block';
+          
+          // Update summary visual state
+          const summary = statusContainer.querySelector('.ci-summary');
+          if (summary) {
+            summary.classList.toggle('expanded', !isVisible);
+          }
+        }
+      }
+    });
   }
 
   setupAutoRefresh() {
@@ -514,6 +532,32 @@ class PRShepherdSidebar {
                     }
                     statusCheckRollup {
                       state
+                      contexts(first: 20) {
+                        nodes {
+                          __typename
+                          ... on CheckRun {
+                            name
+                            conclusion
+                            status
+                            detailsUrl
+                            completedAt
+                            checkSuite {
+                              app {
+                                name
+                              }
+                            }
+                          }
+                          ... on StatusContext {
+                            context
+                            state
+                            targetUrl
+                            description
+                            creator {
+                              login
+                            }
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -652,7 +696,7 @@ class PRShepherdSidebar {
   renderPR(pr) {
     const statusIcon = this.getStatusIcon(pr);
     const reviewStatus = this.getReviewStatus(pr);
-    const ciStatus = this.getCIStatus(pr);
+    const detailedCIStatus = this.getDetailedCIDisplay(pr);
     const labels = this.renderLabels(pr.labels.nodes);
     const activityInfo = this.getActivityInfo(pr);
     const assignedTag = pr.customTag ? `<span class="custom-tag" style="background-color: ${pr.customTag.color}">${pr.customTag.name}</span>` : '';
@@ -679,8 +723,8 @@ class PRShepherdSidebar {
           </div>
         </div>
         <div class="pr-status">
-          <div class="status-item">
-            ${statusIcon} ${ciStatus}
+          <div class="status-item ci-status-container">
+            ${statusIcon} ${detailedCIStatus}
           </div>
           <div class="status-item">
             ${reviewStatus}
@@ -705,10 +749,104 @@ class PRShepherdSidebar {
   }
 
   getCIStatus(pr) {
-    const ciState = pr.commits.nodes[0]?.commit?.statusCheckRollup?.state;
-    if (!ciState) return 'unknown';
+    const rollup = pr.commits.nodes[0]?.commit?.statusCheckRollup;
+    if (!rollup) return { state: 'unknown', details: [] };
     
-    return ciState.toLowerCase().replace('_', ' ');
+    const state = rollup.state ? rollup.state.toLowerCase().replace('_', ' ') : 'unknown';
+    const contexts = rollup.contexts?.nodes || [];
+    
+    // Process detailed check information
+    const details = contexts.map(context => {
+      if (context.__typename === 'CheckRun') {
+        return {
+          type: 'check_run',
+          name: context.name,
+          status: context.status?.toLowerCase() || 'unknown',
+          conclusion: context.conclusion?.toLowerCase() || null,
+          app: context.checkSuite?.app?.name || 'GitHub',
+          url: context.detailsUrl,
+          completedAt: context.completedAt
+        };
+      } else if (context.__typename === 'StatusContext') {
+        return {
+          type: 'status',
+          name: context.context,
+          state: context.state?.toLowerCase() || 'unknown',
+          description: context.description,
+          creator: context.creator?.login || 'Unknown',
+          url: context.targetUrl
+        };
+      }
+      return null;
+    }).filter(Boolean);
+    
+    return { state, details };
+  }
+
+  getDetailedCIDisplay(pr) {
+    const { state, details } = this.getCIStatus(pr);
+    
+    if (!details.length) {
+      return `<span class="ci-state ci-${state}">${this.getCIIcon(state)} ${state}</span>`;
+    }
+    
+    // Group checks by status/conclusion
+    const grouped = details.reduce((acc, check) => {
+      const status = check.conclusion || check.state || check.status;
+      if (!acc[status]) acc[status] = [];
+      acc[status].push(check);
+      return acc;
+    }, {});
+    
+    // Create summary display
+    const summaryParts = Object.entries(grouped).map(([status, checks]) => {
+      const icon = this.getCIIcon(status);
+      const count = checks.length;
+      return `${icon} ${count}`;
+    });
+    
+    const detailsHtml = details.map(check => {
+      const status = check.conclusion || check.state || check.status;
+      const icon = this.getCIIcon(status);
+      const url = check.url ? `href="${check.url}" target="_blank"` : '';
+      const title = check.description || `${check.name} - ${status}`;
+      
+      return `<div class="ci-check" title="${title}">
+        <a ${url} class="ci-check-link">
+          ${icon} <span class="ci-check-name">${check.name}</span>
+          <span class="ci-check-status">${status}</span>
+        </a>
+      </div>`;
+    }).join('');
+    
+    return `
+      <div class="ci-status-detailed">
+        <div class="ci-summary" title="Click to expand details">
+          <span class="ci-state ci-${state}">${this.getCIIcon(state)} ${summaryParts.join(' ')}</span>
+        </div>
+        <div class="ci-details" style="display: none;">
+          ${detailsHtml}
+        </div>
+      </div>
+    `;
+  }
+  
+  getCIIcon(state) {
+    switch (state) {
+      case 'success': return '✅';
+      case 'failure': return '❌';
+      case 'error': return '🚫';
+      case 'pending': return '🟡';
+      case 'in_progress': return '🔄';
+      case 'queued': return '⏳';
+      case 'completed': return '✅';
+      case 'cancelled': return '⚪';
+      case 'skipped': return '⏭️';
+      case 'neutral': return '⚪';
+      case 'timed_out': return '⏰';
+      case 'action_required': return '⚠️';
+      default: return '❓';
+    }
   }
 
   getReviewStatus(pr) {
