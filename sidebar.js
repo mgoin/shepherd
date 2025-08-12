@@ -319,18 +319,20 @@ class PRShepherdSidebar {
 
       // Reviewer only filter
       if (this.reviewerOnlyMode && this.currentUser) {
-        const isDirectReviewer = pr.reviewRequests.nodes.some(req => {
+        const reviewRequests = pr.reviewRequests?.nodes || [];
+        const isDirectReviewer = reviewRequests.some(req => {
           const reviewer = req.requestedReviewer;
           return reviewer?.login === this.currentUser.login;
         });
         
-        const hasTeamRequest = this.includeTeamRequests && pr.reviewRequests.nodes.some(req => {
+        const hasTeamRequest = this.includeTeamRequests && reviewRequests.some(req => {
           const reviewer = req.requestedReviewer;
           return reviewer?.slug; // This means it's a team
         });
         
-        const hasReviewed = pr.reviews.nodes.some(review => 
-          review.author.login === this.currentUser.login
+        const reviewNodes = pr.reviews?.nodes || [];
+        const hasReviewed = reviewNodes.some(review => 
+          review.author?.login === this.currentUser.login
         );
         
         if (!isDirectReviewer && !hasTeamRequest && !hasReviewed) {
@@ -679,7 +681,7 @@ class PRShepherdSidebar {
   renderPR(pr) {
     const reviewStatus = this.getReviewStatus(pr);
     const detailedCIStatus = this.getDetailedCIDisplay(pr);
-    const labels = this.renderLabels(pr.labels.nodes);
+    const labels = this.renderLabels(pr.labels?.nodes);
     const activityInfo = this.getActivityInfo(pr);
     const assignedTag = pr.customTag ? `<span class="custom-tag" style="background-color: ${pr.customTag.color}">${pr.customTag.name}</span>` : '';
     
@@ -766,18 +768,19 @@ class PRShepherdSidebar {
     if (pr.reviewDecision === 'CHANGES_REQUESTED') return '👎 Changes requested';
     
     // Check if user is directly requested for review
-    const isDirectReviewer = pr.reviewRequests.nodes.some(req => {
+    const reviewRequests = pr.reviewRequests?.nodes || [];
+    const isDirectReviewer = reviewRequests.some(req => {
       const reviewer = req.requestedReviewer;
       return reviewer?.login === this.currentUser?.login;
     });
     
     // Check for team requests
-    const teamRequests = pr.reviewRequests.nodes.filter(req => req.requestedReviewer?.slug);
+    const teamRequests = reviewRequests.filter(req => req.requestedReviewer?.slug);
     
     if (isDirectReviewer) return '👤 You requested';
     if (teamRequests.length > 0) return `👥 Team review (${teamRequests.length})`;
     
-    const reviewCount = pr.reviews.totalCount;
+    const reviewCount = pr.reviews?.totalCount || 0;
     if (reviewCount === 0) return '⏳ No reviews';
     
     return `💬 ${reviewCount} review${reviewCount > 1 ? 's' : ''}`;
@@ -789,7 +792,8 @@ class PRShepherdSidebar {
     const activities = [];
     
     // Check if user is requested for review
-    const isDirectReviewer = pr.reviewRequests.nodes.some(req => {
+    const reviewRequests = pr.reviewRequests?.nodes || [];
+    const isDirectReviewer = reviewRequests.some(req => {
       const reviewer = req.requestedReviewer;
       return reviewer?.login === this.currentUser.login;
     });
@@ -811,7 +815,7 @@ class PRShepherdSidebar {
   }
 
   renderLabels(labels) {
-    if (!labels.length) return '';
+    if (!labels || !labels.length) return '';
     
     return labels.map(label => 
       `<span class="label" style="background-color: #${label.color}">${label.name}</span>`
