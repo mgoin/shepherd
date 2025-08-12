@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "Shepherd your vLLM GitHub pull requests - track status, reviews, and CI checks",
   "scripts": {
-    "test": "jest",
+    "test": "node test-runner.js && node test-integration.js",
+    "test:regression": "node test-regression.js",
+    "test:performance": "node test-performance.js",
+    "test:all": "npm run test:regression && npm run test && npm run test:performance",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:unit": "jest --testPathPattern=unit",
@@ -12,8 +15,9 @@
     "test:ci": "jest --coverage --watchAll=false --ci",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "build": "npm run lint && npm run test:ci",
-    "dev": "npm run test:watch"
+    "build": "npm run test:regression && npm run lint && npm run test",
+    "dev": "npm run test:watch",
+    "precommit": "npm run test:regression"
   },
   "devDependencies": {
     "@jest/globals": "^27.5.1",

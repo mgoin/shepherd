@@ -21,12 +21,17 @@ class PRShepherdSidebar {
 
   async init() {
     await this.loadCustomTags();
-    await this.checkAuth();
     this.setupEventListeners();
     
-    // Load cached data first, then fetch fresh data
-    await this.loadCachedData();
-    this.loadPRs(); // Don't await - let it happen in background
+    // Show cached data immediately (before auth check)
+    await this.loadCachedDataInstantly();
+    
+    await this.checkAuth();
+    
+    // After auth, refresh data in background if needed
+    if (this.token) {
+      this.loadPRs(); // Don't await - let it happen in background
+    }
     
     this.setupAutoRefresh();
   }
@@ -381,6 +386,12 @@ class PRShepherdSidebar {
     const listElement = document.getElementById('pr-list');
     const refreshBtn = document.getElementById('refresh-btn');
     
+    // Check if we should skip refresh (smart caching)
+    if (!forceRefresh && this.shouldSkipRefresh()) {
+      console.log('⏭️ Skipping refresh - data is fresh enough');
+      return;
+    }
+    
     // Only show loading state if we don't have cached data or forced refresh
     const hasExistingData = this.allPRs && this.allPRs.length > 0;
     refreshBtn.classList.add('updating');
@@ -390,11 +401,13 @@ class PRShepherdSidebar {
     }
 
     try {
+      console.log('🔄 Fetching fresh PR data...');
       const prs = await this.fetchPRs();
       this.renderPRs(prs);
       await this.savePRCache(prs); // Save to cache
       this.updateFooter();
       this.lastUpdate = new Date();
+      console.log('✅ Fresh data loaded');
     } catch (error) {
       console.error('Error loading PRs:', error);
       if (error.message.includes('401') || error.message.includes('Bad credentials')) {
@@ -442,6 +455,38 @@ class PRShepherdSidebar {
     } finally {
       refreshBtn.classList.remove('updating');
     }
+  }
+
+  async loadCachedDataInstantly() {
+    try {
+      // Load from local storage cache WITHOUT checking auth first
+      const cached = await new Promise((resolve) => {
+        chrome.storage.local.get(['pr_cache'], (result) => {
+          resolve(result.pr_cache);
+        });
+      });
+      
+      if (cached && cached.data && cached.data.length > 0) {
+        console.log('📦 Instant cache load:', cached.data.length, 'PRs');
+        
+        // Show main content immediately with cached data
+        const authSection = document.getElementById('auth-section');
+        const mainContent = document.getElementById('main-content');
+        authSection.style.display = 'none';
+        mainContent.style.display = 'flex';
+        
+        this.renderPRs(cached.data);
+        this.lastUpdate = new Date(cached.lastUpdate);
+        this.updateFooter();
+        
+        // Add visual indicator that this is cached data
+        this.showCacheIndicator();
+        return true;
+      }
+    } catch (error) {
+      console.log('No cached data available:', error);
+    }
+    return false;
   }
 
   async loadCachedData() {
@@ -501,20 +546,18 @@ class PRShepherdSidebar {
     const query = `
       query GetVLLMPRs($owner: String!, $name: String!) {
         repository(owner: $owner, name: $name) {
-          pullRequests(first: 50, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+          pullRequests(first: 30, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
               id
               number
               title
               state
               isDraft
-              createdAt
               updatedAt
               author {
                 login
               }
-              headRefName
-              reviewRequests(first: 5) {
+              reviewRequests(first: 3) {
                 nodes {
                   requestedReviewer {
                     ... on User {
@@ -522,7 +565,6 @@ class PRShepherdSidebar {
                     }
                     ... on Team {
                       slug
-                      name
                     }
                   }
                 }
@@ -537,16 +579,10 @@ class PRShepherdSidebar {
                 }
               }
               reviewDecision
-              reviews(first: 5) {
+              reviews {
                 totalCount
-                nodes {
-                  state
-                  author {
-                    login
-                  }
-                }
               }
-              labels(first: 3) {
+              labels(first: 2) {
                 nodes {
                   name
                   color
@@ -559,7 +595,6 @@ class PRShepherdSidebar {
           login
         }
         rateLimit {
-          limit
           remaining
           resetAt
         }
@@ -801,6 +836,17 @@ class PRShepherdSidebar {
     return date.toLocaleDateString();
   }
 
+  showCacheIndicator() {
+    const lastUpdateElement = document.getElementById('last-update');
+    lastUpdateElement.style.color = '#bf8700';
+    lastUpdateElement.textContent = '📦 Showing cached data, refreshing...';
+  }
+
+  hideCacheIndicator() {
+    const lastUpdateElement = document.getElementById('last-update');
+    lastUpdateElement.style.color = '';
+  }
+
   updateFooter() {
     const rateLimitElement = document.getElementById('rate-limit-info');
     const lastUpdateElement = document.getElementById('last-update');
@@ -813,7 +859,19 @@ class PRShepherdSidebar {
     if (this.lastUpdate) {
       const timeAgo = this.getTimeAgo(this.lastUpdate);
       lastUpdateElement.textContent = `Updated: ${timeAgo}`;
+      this.hideCacheIndicator();
     }
+  }
+
+  shouldSkipRefresh() {
+    // Skip refresh if data is less than 2 minutes old
+    if (!this.lastUpdate) return false;
+    
+    const now = Date.now();
+    const twoMinutesAgo = now - (2 * 60 * 1000);
+    const lastUpdateTime = this.lastUpdate.getTime();
+    
+    return lastUpdateTime > twoMinutesAgo;
   }
 
   getTimeAgo(date) {
