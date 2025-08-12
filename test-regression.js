@@ -42,9 +42,9 @@ const fs = require('fs');
 test('GraphQL query maintains working structure', () => {
   const sidebarCode = fs.readFileSync('sidebar.js', 'utf8');
   
-  // Ensure we're still using the simplified query (30 PRs, basic fields)
-  assertTrue(sidebarCode.includes('first: 30'), 'Query should limit to 30 PRs for performance');
-  assertTrue(sidebarCode.includes('pullRequests(first: 30'), 'Should fetch 30 pull requests');
+  // Ensure we're still using the simplified query (75 PRs, basic fields)
+  assertTrue(sidebarCode.includes('first: 75'), 'Query should limit to 75 PRs for completeness');
+  assertTrue(sidebarCode.includes('pullRequests(first: 75'), 'Should fetch 75 pull requests');
   
   // Essential fields that must be present
   assertTrue(sidebarCode.includes('number'), 'Query must include PR number');

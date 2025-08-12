@@ -122,6 +122,7 @@ class PRShepherdSidebar {
     // Reviewer only checkbox
     document.getElementById('reviewer-only').addEventListener('change', (e) => {
       this.reviewerOnlyMode = e.target.checked;
+      console.log(`👤 Reviewer only mode: ${this.reviewerOnlyMode}`);
       this.applyFilters();
     });
 
@@ -308,11 +309,18 @@ class PRShepherdSidebar {
   }
 
   applyFilters() {
+    console.log(`🔍 Filtering ${this.allPRs.length} PRs. ReviewerOnly: ${this.reviewerOnlyMode}, User: ${this.currentUser?.login}`);
+    
+    let searchFiltered = 0;
+    let reviewerFiltered = 0;
+    let statusFiltered = 0;
+    
     this.filteredPRs = this.allPRs.filter(pr => {
       // Search filter
       if (this.searchTerm) {
         const searchableText = `${pr.title} ${pr.number} ${pr.author.login} ${pr.headRefName}`.toLowerCase();
         if (!this.fuzzyMatch(searchableText, this.searchTerm)) {
+          searchFiltered++;
           return false;
         }
       }
@@ -336,18 +344,24 @@ class PRShepherdSidebar {
         );
         
         if (!isDirectReviewer && !hasTeamRequest && !hasReviewed) {
+          reviewerFiltered++;
           return false;
         }
       }
 
       // Status filter
       if (this.currentFilter && this.currentFilter !== 'all') {
-        return this.shouldShowPR(pr, this.currentFilter);
+        if (!this.shouldShowPR(pr, this.currentFilter)) {
+          statusFiltered++;
+          return false;
+        }
       }
 
       return true;
     });
 
+    console.log(`📊 Filter results: ${this.filteredPRs.length} shown, ${searchFiltered} search filtered, ${reviewerFiltered} reviewer filtered, ${statusFiltered} status filtered`);
+    
     this.renderFilteredPRs();
   }
 
@@ -548,7 +562,7 @@ class PRShepherdSidebar {
     const query = `
       query GetVLLMPRs($owner: String!, $name: String!) {
         repository(owner: $owner, name: $name) {
-          pullRequests(first: 30, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+          pullRequests(first: 75, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
               id
               number

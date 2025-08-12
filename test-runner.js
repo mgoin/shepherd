@@ -140,7 +140,7 @@ test('GraphQL query includes required fields', () => {
   assertTrue(sidebarCode.includes('pullRequests'), 'Query includes pullRequests');
   assertTrue(sidebarCode.includes('reviewRequests'), 'Query includes reviewRequests');
   assertTrue(sidebarCode.includes('statusCheckRollup'), 'Query includes CI status');
-  assertTrue(sidebarCode.includes('first: 30'), 'Query limits to 30 PRs for performance');
+  assertTrue(sidebarCode.includes('first: 75'), 'Query limits to 75 PRs for completeness');
 });
 
 // Test 5: Custom tag functionality simulation
