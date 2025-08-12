@@ -139,8 +139,8 @@ test('GraphQL query includes required fields', () => {
   const sidebarCode = fs.readFileSync('sidebar.js', 'utf8');
   assertTrue(sidebarCode.includes('pullRequests'), 'Query includes pullRequests');
   assertTrue(sidebarCode.includes('reviewRequests'), 'Query includes reviewRequests');
-  assertTrue(sidebarCode.includes('timelineItems'), 'Query includes timelineItems');
-  assertTrue(sidebarCode.includes('ReviewRequestedEvent'), 'Query includes ReviewRequestedEvent');
+  assertTrue(sidebarCode.includes('statusCheckRollup'), 'Query includes CI status');
+  assertTrue(sidebarCode.includes('first: 50'), 'Query limits to 50 PRs for performance');
 });
 
 // Test 5: Custom tag functionality simulation

@@ -104,7 +104,7 @@ class ShepherdBackground {
     const query = `
       query GetVLLMPRs($owner: String!, $name: String!) {
         repository(owner: $owner, name: $name) {
-          pullRequests(first: 100, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+          pullRequests(first: 50, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
               id
               number
@@ -120,23 +120,6 @@ class ShepherdBackground {
                   commit {
                     statusCheckRollup {
                       state
-                      contexts(first: 20) {
-                        nodes {
-                          __typename
-                          ... on CheckRun {
-                            name
-                            conclusion
-                            status
-                            detailsUrl
-                          }
-                          ... on StatusContext {
-                            context
-                            state
-                            targetUrl
-                            description
-                          }
-                        }
-                      }
                     }
                   }
                 }

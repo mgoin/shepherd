@@ -366,10 +366,10 @@ class PRShepherdSidebar {
       case 'finished':
         return pr.state === 'MERGED' || pr.state === 'CLOSED' || reviewDecision === 'APPROVED';
       case 'pinged':
-        return this.getActivityInfo(pr).includes('Recently pinged');
+        return this.getActivityInfo(pr).includes('Review requested');
       case 'author-active':
         const activity = this.getActivityInfo(pr);
-        return activity.includes('Recent commits') || activity.includes('Author activity');
+        return activity.includes('Recently updated');
       default:
         return true;
     }
@@ -428,8 +428,12 @@ class PRShepherdSidebar {
       } else if (error.message.includes('502') || error.message.includes('503') || error.message.includes('504')) {
         listElement.innerHTML = `
           <div class="error">
-            GitHub API temporarily unavailable. 
-            <br><small>Try again in a few minutes.</small>
+            GitHub API temporarily unavailable (${error.message.includes('504') ? 'timeout' : 'server error'}).
+            <br><small>GitHub is experiencing issues. This is not a problem with the extension.</small>
+            <br><br>
+            <button class="btn" onclick="document.getElementById('refresh-btn').click()">
+              Try Again
+            </button>
           </div>
         `;
       } else {
@@ -497,21 +501,20 @@ class PRShepherdSidebar {
     const query = `
       query GetVLLMPRs($owner: String!, $name: String!) {
         repository(owner: $owner, name: $name) {
-          pullRequests(first: 100, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+          pullRequests(first: 50, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
               id
               number
               title
               state
               isDraft
-              mergeable
               createdAt
               updatedAt
               author {
                 login
               }
               headRefName
-              reviewRequests(first: 10) {
+              reviewRequests(first: 5) {
                 nodes {
                   requestedReviewer {
                     ... on User {
@@ -527,78 +530,23 @@ class PRShepherdSidebar {
               commits(last: 1) {
                 nodes {
                   commit {
-                    author {
-                      date
-                    }
                     statusCheckRollup {
                       state
-                      contexts(first: 20) {
-                        nodes {
-                          __typename
-                          ... on CheckRun {
-                            name
-                            conclusion
-                            status
-                            detailsUrl
-                            completedAt
-                            checkSuite {
-                              app {
-                                name
-                              }
-                            }
-                          }
-                          ... on StatusContext {
-                            context
-                            state
-                            targetUrl
-                            description
-                            creator {
-                              login
-                            }
-                          }
-                        }
-                      }
                     }
                   }
                 }
               }
               reviewDecision
-              reviews(first: 10, states: [APPROVED, CHANGES_REQUESTED, COMMENTED]) {
+              reviews(first: 5) {
                 totalCount
                 nodes {
                   state
                   author {
                     login
                   }
-                  createdAt
                 }
               }
-              timelineItems(last: 10, itemTypes: [
-                REVIEW_REQUESTED_EVENT,
-                READY_FOR_REVIEW_EVENT
-              ]) {
-                nodes {
-                  __typename
-                  ... on ReviewRequestedEvent {
-                    createdAt
-                    actor {
-                      login
-                    }
-                    requestedReviewer {
-                      ... on User {
-                        login
-                      }
-                    }
-                  }
-                  ... on ReadyForReviewEvent {
-                    createdAt
-                    actor {
-                      login
-                    }
-                  }
-                }
-              }
-              labels(first: 5) {
+              labels(first: 3) {
                 nodes {
                   name
                   color
@@ -694,7 +642,6 @@ class PRShepherdSidebar {
   }
 
   renderPR(pr) {
-    const statusIcon = this.getStatusIcon(pr);
     const reviewStatus = this.getReviewStatus(pr);
     const detailedCIStatus = this.getDetailedCIDisplay(pr);
     const labels = this.renderLabels(pr.labels.nodes);
@@ -724,7 +671,7 @@ class PRShepherdSidebar {
         </div>
         <div class="pr-status">
           <div class="status-item ci-status-container">
-            ${statusIcon} ${detailedCIStatus}
+            ${detailedCIStatus}
           </div>
           <div class="status-item">
             ${reviewStatus}
@@ -750,85 +697,15 @@ class PRShepherdSidebar {
 
   getCIStatus(pr) {
     const rollup = pr.commits.nodes[0]?.commit?.statusCheckRollup;
-    if (!rollup) return { state: 'unknown', details: [] };
+    if (!rollup) return { state: 'unknown' };
     
     const state = rollup.state ? rollup.state.toLowerCase().replace('_', ' ') : 'unknown';
-    const contexts = rollup.contexts?.nodes || [];
-    
-    // Process detailed check information
-    const details = contexts.map(context => {
-      if (context.__typename === 'CheckRun') {
-        return {
-          type: 'check_run',
-          name: context.name,
-          status: context.status?.toLowerCase() || 'unknown',
-          conclusion: context.conclusion?.toLowerCase() || null,
-          app: context.checkSuite?.app?.name || 'GitHub',
-          url: context.detailsUrl,
-          completedAt: context.completedAt
-        };
-      } else if (context.__typename === 'StatusContext') {
-        return {
-          type: 'status',
-          name: context.context,
-          state: context.state?.toLowerCase() || 'unknown',
-          description: context.description,
-          creator: context.creator?.login || 'Unknown',
-          url: context.targetUrl
-        };
-      }
-      return null;
-    }).filter(Boolean);
-    
-    return { state, details };
+    return { state };
   }
 
   getDetailedCIDisplay(pr) {
-    const { state, details } = this.getCIStatus(pr);
-    
-    if (!details.length) {
-      return `<span class="ci-state ci-${state}">${this.getCIIcon(state)} ${state}</span>`;
-    }
-    
-    // Group checks by status/conclusion
-    const grouped = details.reduce((acc, check) => {
-      const status = check.conclusion || check.state || check.status;
-      if (!acc[status]) acc[status] = [];
-      acc[status].push(check);
-      return acc;
-    }, {});
-    
-    // Create summary display
-    const summaryParts = Object.entries(grouped).map(([status, checks]) => {
-      const icon = this.getCIIcon(status);
-      const count = checks.length;
-      return `${icon} ${count}`;
-    });
-    
-    const detailsHtml = details.map(check => {
-      const status = check.conclusion || check.state || check.status;
-      const icon = this.getCIIcon(status);
-      const url = check.url ? `href="${check.url}" target="_blank"` : '';
-      const title = check.description || `${check.name} - ${status}`;
-      
-      return `<div class="ci-check" title="${title}">
-        <a ${url} class="ci-check-link">
-          ${icon} <span class="ci-check-name">${check.name}</span>
-          <span class="ci-check-status">${status}</span>
-        </a>
-      </div>`;
-    }).join('');
-    
-    return `
-      <div class="ci-status-detailed">
-        <div class="ci-summary" title="Click to expand details">
-          <span class="ci-state ci-${state}">${this.getCIIcon(state)} ${summaryParts.join(' ')}</span>
-        </div>
-        <div class="ci-details" style="display: none;">
-          ${detailsHtml}
-        </div>
-      </div>
-    `;
+    const { state } = this.getCIStatus(pr);
+    return `<span class="ci-state ci-${state}">${this.getCIIcon(state)} ${state}</span>`;
   }
   
   getCIIcon(state) {
@@ -874,60 +751,25 @@ class PRShepherdSidebar {
   getActivityInfo(pr) {
     if (!this.currentUser) return '';
     
-    const now = Date.now();
-    const oneDayAgo = now - (24 * 60 * 60 * 1000);
-    const threeDaysAgo = now - (3 * 24 * 60 * 60 * 1000);
-    
     const activities = [];
     
-    // Check for recent pings (review requests targeting me)
-    const recentPings = pr.timelineItems?.nodes?.filter(item => {
-      if (item.__typename === 'ReviewRequestedEvent') {
-        const createdAt = new Date(item.createdAt).getTime();
-        const targetedMe = item.requestedReviewer?.login === this.currentUser.login;
-        return targetedMe && createdAt > oneDayAgo;
-      }
-      return false;
-    }) || [];
+    // Check if user is requested for review
+    const isDirectReviewer = pr.reviewRequests.nodes.some(req => {
+      const reviewer = req.requestedReviewer;
+      return reviewer?.login === this.currentUser.login;
+    });
     
-    if (recentPings.length > 0) {
-      activities.push('🔔 Recently pinged');
+    if (isDirectReviewer) {
+      activities.push('🔔 Review requested');
     }
     
-    // Check for recent author activity (simplified)
-    const authorLogin = pr.author.login;
+    // Check for recent updates (within 1 day)
+    const now = Date.now();
+    const oneDayAgo = now - (24 * 60 * 60 * 1000);
+    const updatedAt = new Date(pr.updatedAt).getTime();
     
-    // Check if there's a recent commit (last commit within 3 days)
-    const lastCommit = pr.commits?.nodes?.[0];
-    if (lastCommit) {
-      const commitDate = new Date(lastCommit.commit.author.date).getTime();
-      if (commitDate > threeDaysAgo) {
-        activities.push('💻 Recent commits');
-      }
-    }
-    
-    // Check for recent reviews by author
-    const recentAuthorReviews = pr.reviews?.nodes?.filter(review => {
-      const createdAt = new Date(review.createdAt).getTime();
-      const byAuthor = review.author?.login === authorLogin;
-      return byAuthor && createdAt > threeDaysAgo;
-    }) || [];
-    
-    if (recentAuthorReviews.length > 0) {
-      activities.push('💬 Author activity');
-    }
-    
-    // Check if ready for review recently
-    const recentReadyForReview = pr.timelineItems?.nodes?.filter(item => {
-      if (item.__typename === 'ReadyForReviewEvent') {
-        const createdAt = new Date(item.createdAt).getTime();
-        return createdAt > oneDayAgo;
-      }
-      return false;
-    }) || [];
-    
-    if (recentReadyForReview.length > 0) {
-      activities.push('✅ Ready for review');
+    if (updatedAt > oneDayAgo) {
+      activities.push('🔄 Recently updated');
     }
     
     return activities.length > 0 ? activities.join(' • ') : '';
