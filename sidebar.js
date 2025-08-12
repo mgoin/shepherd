@@ -618,20 +618,35 @@ class PRShepherdSidebar {
       }
     `;
 
-    const response = await fetch(this.baseUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `bearer ${this.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        query,
-        variables: {
-          owner: this.repo.owner,
-          name: this.repo.name
-        }
-      })
-    });
+    // Add timeout handling for the GraphQL API call
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+    
+    let response;
+    try {
+      response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `bearer ${this.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query,
+          variables: {
+            owner: this.repo.owner,
+            name: this.repo.name
+          }
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('GitHub API request timed out. The server may be experiencing heavy load.');
+      }
+      throw error;
+    }
 
     // Log rate limit headers for debugging
     const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
