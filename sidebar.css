@@ -472,7 +472,8 @@ body {
 
 .pr-item:hover {
   border-color: #8b949e;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
 }
 
 .pr-item[draggable="true"] {
@@ -541,7 +542,9 @@ body {
 .status-item {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 /* Detailed CI Status */
@@ -573,27 +576,36 @@ body {
 }
 
 .ci-state {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: capitalize;
 }
 
 .ci-state.ci-success {
   color: #1a7f37;
+  background-color: rgba(26, 127, 55, 0.1);
 }
 
 .ci-state.ci-failure,
 .ci-state.ci-error {
   color: #d1242f;
+  background-color: rgba(209, 36, 47, 0.1);
 }
 
 .ci-state.ci-pending,
 .ci-state.ci-in_progress {
   color: #bf8700;
+  background-color: rgba(191, 135, 0, 0.1);
 }
 
 .ci-state.ci-unknown {
   color: #656d76;
+  background-color: rgba(101, 109, 118, 0.1);
 }
 
 .ci-details {
@@ -650,12 +662,13 @@ body {
 /* Activity Info */
 .pr-activity {
   font-size: 10px;
-  color: #0969da;
+  color: #656d76;
   margin-bottom: 6px;
-  padding: 4px 6px;
-  background: #dbeafe;
-  border-radius: 4px;
-  border-left: 3px solid #0969da;
+  padding: 3px 8px;
+  background: rgba(6, 105, 218, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(6, 105, 218, 0.15);
+  display: inline-block;
 }
 
 /* Custom Tags */
@@ -742,6 +755,10 @@ body {
 
 .error {
   color: #d1242f;
+  background: rgba(209, 36, 47, 0.05);
+  border: 1px solid rgba(209, 36, 47, 0.15);
+  border-radius: 8px;
+  margin: 16px;
 }
 
 /* Footer */
