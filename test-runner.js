@@ -301,6 +301,33 @@ test('CSS has required styling classes', () => {
   assertTrue(css.includes('.quick-tag-btn'), 'Quick tag button styling exists');
 });
 
+// Test 11: Repository settings functionality
+test('Repository settings functionality exists', () => {
+  const fs = require('fs');
+  const sidebarCode = fs.readFileSync('sidebar.js', 'utf8');
+  
+  // Test that repository settings methods exist
+  assertTrue(sidebarCode.includes('loadRepositorySettings()'), 'loadRepositorySettings method exists');
+  assertTrue(sidebarCode.includes('saveRepositorySettings('), 'saveRepositorySettings method exists');
+  assertTrue(sidebarCode.includes('validateRepositoryAccess('), 'validateRepositoryAccess method exists');
+  assertTrue(sidebarCode.includes('showRepositorySettings()'), 'showRepositorySettings modal method exists');
+  
+  // Test that settings UI elements are present
+  assertTrue(sidebarCode.includes('Repository Settings'), 'Repository Settings UI text exists');
+  assertTrue(sidebarCode.includes('repo-owner-input'), 'Repository owner input field exists');
+  assertTrue(sidebarCode.includes('repo-name-input'), 'Repository name input field exists');
+  
+  // Test that background.js was updated for repository settings
+  const backgroundCode = fs.readFileSync('background.js', 'utf8');
+  assertTrue(backgroundCode.includes('getRepositorySettings()'), 'Background getRepositorySettings method exists');
+  assertTrue(backgroundCode.includes('repositorySettings.owner'), 'Background uses dynamic repository owner');
+  assertTrue(backgroundCode.includes('repositorySettings.name'), 'Background uses dynamic repository name');
+  
+  // Test validation logic
+  assertTrue(sidebarCode.includes('viewerPermission'), 'Repository permission validation exists');
+  assertTrue(sidebarCode.includes('READ') && sidebarCode.includes('TRIAGE') && sidebarCode.includes('WRITE'), 'Permission checking logic exists');
+});
+
 // Run all tests and report results
 console.log(`\n📊 Test Results:`);
 console.log(`✅ Passed: ${passed}`);
