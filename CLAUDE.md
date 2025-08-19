@@ -29,6 +29,12 @@
 - **GitHub Actions Integration** - Automated testing on every commit
 - **Code Quality Standards** - Linting, type checking, and performance monitoring
 
+#### **Code Architecture (Phase 3A Complete)**
+- **DOMSelectors Utility** - Centralized DOM access with organized functions
+- **Constants Object** - Eliminated magic strings with organized configuration
+- **Custom Modal System** - Replaced all system modals with consistent UI
+- **Modular Structure** - Foundation ready for architectural refactoring
+
 ### 🛠 **Technical Architecture**
 
 ```
@@ -91,6 +97,66 @@ git push origin feature/your-feature-name
 
 # Create pull request on GitHub
 ```
+
+### **PR Management Workflow**
+
+#### **Branch Management**
+```bash
+# Always start from updated main
+git checkout main
+git pull origin main
+
+# Create focused feature branches
+git checkout -b feature/descriptive-name
+
+# Use git stash when switching branches mid-work
+git stash push -m "Work in progress on feature X"
+git checkout other-branch
+# Later: git stash pop to resume work
+```
+
+#### **PR Lifecycle**
+```bash
+# Create PR early with proper description
+gh pr create --title "Feature: Description" --body "Detailed explanation"
+
+# Monitor CI status
+gh pr checks <pr-number>
+gh pr view <pr-number>
+
+# When ready for review
+# 1. Ensure all CI checks pass ✅
+# 2. Comprehensive PR description
+# 3. Clean commit history
+# 4. Notify reviewer that PR is ready
+
+# After merge - clean up
+git checkout main
+git pull origin main
+git branch -d feature/merged-branch-name
+```
+
+#### **CI/Testing Integration**
+```bash
+# All PRs must pass:
+# ✅ Build Check
+# ✅ Code Quality (lint, syntax)  
+# ✅ Unit Tests (test-runner.js)
+# ✅ Integration Tests (test-integration.js)
+# ✅ Final Status
+
+# Local pre-push verification
+node test-runner.js
+node test-integration.js
+```
+
+#### **Ready for Review Checklist**
+- [ ] All CI checks passing
+- [ ] Comprehensive PR description with summary, changes, testing
+- [ ] Clean commit history with descriptive messages
+- [ ] 100% test coverage maintained
+- [ ] No breaking changes or proper migration path
+- [ ] Code follows project conventions and style
 
 ## 🎛 **Configuration**
 
