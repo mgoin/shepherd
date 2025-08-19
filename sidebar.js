@@ -151,6 +151,19 @@ const Constants = {
     JUST_NOW: 1, // minute
     MINUTES: 60, // minutes
     HOURS: 24 // hours
+  },
+  
+  // Token Format Prefixes
+  TOKEN_PREFIXES: {
+    CLASSIC: 'ghp_',
+    FINE_GRAINED: 'github_pat_'
+  },
+  
+  // UI Colors
+  UI_COLORS: {
+    WARNING: '#bf8700',
+    HOVER_BACKGROUND: '#f6f8fa',
+    TRANSPARENT: 'transparent'
   }
 };
 
@@ -391,8 +404,8 @@ class ModalManager {
     }
     
     // Validate token format
-    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
-      this.showTokenValidationError('Invalid token format. GitHub tokens start with "ghp_" or "github_pat_"');
+    if (!token.startsWith(Constants.TOKEN_PREFIXES.CLASSIC) && !token.startsWith(Constants.TOKEN_PREFIXES.FINE_GRAINED)) {
+      this.showTokenValidationError(`Invalid token format. GitHub tokens start with "${Constants.TOKEN_PREFIXES.CLASSIC}" or "${Constants.TOKEN_PREFIXES.FINE_GRAINED}"`);
       return;
     }
     
@@ -1438,7 +1451,7 @@ class PRShepherdSidebar {
 
   showCacheIndicator() {
     const lastUpdateElement = DOMSelectors.lastUpdate();
-    lastUpdateElement.style.color = '#bf8700';
+    lastUpdateElement.style.color = Constants.UI_COLORS.WARNING;
     lastUpdateElement.textContent = '📦 Showing cached data, refreshing...';
   }
 
@@ -1632,7 +1645,7 @@ class PRShepherdSidebar {
     const currentPR = this.allPRs.find(pr => pr.number === prNumber);
     if (currentPR?.customTag) {
       const removeOption = document.createElement('div');
-      removeOption.style.cssText = 'padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f6f8fa; color: #d1242f;';
+      removeOption.style.cssText = `padding: 8px 12px; cursor: pointer; border-bottom: 1px solid ${Constants.UI_COLORS.HOVER_BACKGROUND}; color: #d1242f;`;
       removeOption.textContent = '✖️ Remove tag';
       removeOption.addEventListener('click', () => {
         this.prTagAssignments.delete(prNumber);
@@ -1652,7 +1665,7 @@ class PRShepherdSidebar {
         display: flex; 
         align-items: center; 
         gap: 6px;
-        border-bottom: 1px solid #f6f8fa;
+        border-bottom: 1px solid ${Constants.UI_COLORS.HOVER_BACKGROUND};
       `;
       option.innerHTML = `
         <span style="width: 8px; height: 8px; border-radius: 50%; background: ${tag.color};"></span>
@@ -1665,10 +1678,10 @@ class PRShepherdSidebar {
         menu.remove();
       });
       option.addEventListener('mouseover', () => {
-        option.style.backgroundColor = '#f6f8fa';
+        option.style.backgroundColor = Constants.UI_COLORS.HOVER_BACKGROUND;
       });
       option.addEventListener('mouseout', () => {
-        option.style.backgroundColor = '';
+        option.style.backgroundColor = Constants.UI_COLORS.TRANSPARENT;
       });
       menu.appendChild(option);
     });
