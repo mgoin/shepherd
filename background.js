@@ -100,9 +100,24 @@ class ShepherdBackground {
     }
   }
 
+  async getRepositorySettings() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['repository_settings'], (result) => {
+        const settings = result.repository_settings || {
+          owner: 'vllm-project',
+          name: 'vllm'
+        };
+        resolve(settings);
+      });
+    });
+  }
+
   async fetchPRs(token) {
+    // Get repository settings from storage
+    const repositorySettings = await this.getRepositorySettings();
+    
     const query = `
-      query GetVLLMPRs($owner: String!, $name: String!) {
+      query GetRepositoryPRs($owner: String!, $name: String!) {
         repository(owner: $owner, name: $name) {
           pullRequests(first: 50, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
@@ -140,8 +155,8 @@ class ShepherdBackground {
       body: JSON.stringify({
         query,
         variables: {
-          owner: 'vllm-project',
-          name: 'vllm'
+          owner: repositorySettings.owner,
+          name: repositorySettings.name
         }
       })
     });

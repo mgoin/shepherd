@@ -503,6 +503,199 @@ class ModalManager {
   }
 
   /**
+   * Show repository settings modal
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
+  async showRepositorySettings() {
+    const currentRepo = this.prShepherd.repo;
+    
+    const bodyHTML = `
+      <div style="margin-bottom: 16px;">
+        <p><strong>🏛️ Repository Configuration</strong></p>
+        <p style="margin: 12px 0; color: #656d76; font-size: 13px; line-height: 1.4;">
+          Configure which GitHub repository to monitor for pull requests. 
+          You need read access to the repository.
+        </p>
+      </div>
+      
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-weight: 500; margin-bottom: 4px; font-size: 13px;">
+          Repository Owner
+        </label>
+        <input type="text" class="modal-input" id="repo-owner-input" 
+               value="${currentRepo.owner}" 
+               placeholder="e.g., microsoft, facebook, vllm-project"
+               style="margin-bottom: 8px;">
+      </div>
+      
+      <div style="margin-bottom: 16px;">
+        <label style="display: block; font-weight: 500; margin-bottom: 4px; font-size: 13px;">
+          Repository Name  
+        </label>
+        <input type="text" class="modal-input" id="repo-name-input" 
+               value="${currentRepo.name}" 
+               placeholder="e.g., vscode, react, vllm">
+      </div>
+      
+      <div style="font-size: 11px; color: #656d76; background: #f6f8fa; padding: 8px; border-radius: 4px;">
+        💡 Examples: microsoft/vscode, facebook/react, vllm-project/vllm
+      </div>
+    `;
+    
+    const footerHTML = `
+      <button class="modal-btn" onclick="prShepherd.modalManager.hideModal()">Cancel</button>
+      <button class="modal-btn primary" onclick="prShepherd.modalManager.submitRepositorySettings()">Save Repository</button>
+    `;
+    
+    this.showModal('Repository Settings', bodyHTML, footerHTML);
+    
+    // Handle Enter key on inputs
+    setTimeout(() => {
+      const ownerInput = document.getElementById('repo-owner-input');
+      const nameInput = document.getElementById('repo-name-input');
+      
+      [ownerInput, nameInput].forEach(input => {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            this.submitRepositorySettings();
+          }
+        });
+      });
+    }, 100);
+  }
+
+  /**
+   * Submit repository settings and validate
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
+  async submitRepositorySettings() {
+    const ownerInput = document.getElementById('repo-owner-input');
+    const nameInput = document.getElementById('repo-name-input');
+    
+    const owner = ownerInput.value.trim();
+    const name = nameInput.value.trim();
+    
+    if (!owner || !name) {
+      this.showRepositoryValidationError('Please enter both repository owner and name.');
+      return;
+    }
+    
+    // Basic format validation
+    if (!/^[a-zA-Z0-9]([a-zA-Z0-9]|-(?!-))*[a-zA-Z0-9]$/.test(owner) || owner.length > 39) {
+      this.showRepositoryValidationError('Invalid repository owner format. Use only letters, numbers, and hyphens.');
+      return;
+    }
+    
+    if (!/^[a-zA-Z0-9._-]+$/.test(name) || name.length > 100) {
+      this.showRepositoryValidationError('Invalid repository name format. Use only letters, numbers, dots, hyphens, and underscores.');
+      return;
+    }
+    
+    this.hideModal();
+    
+    try {
+      // Show loading state
+      this.prShepherd.showRepositoryValidation('Validating repository access...');
+      
+      // Validate repository access
+      const isValid = await this.prShepherd.validateRepositoryAccess(owner, name);
+      
+      if (isValid) {
+        await this.prShepherd.saveRepositorySettings(owner, name);
+        this.prShepherd.hideRepositoryValidation();
+        this.showRepositorySuccessModal(owner, name);
+      } else {
+        this.showRepositoryValidationError('Cannot access repository. Check the name and your permissions.');
+      }
+    } catch (error) {
+      console.error('Repository validation failed:', error);
+      this.showRepositoryValidationError(`Repository validation failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Show repository validation error
+   * 
+   * @param {string} message - Error message
+   * @returns {void}
+   */
+  showRepositoryValidationError(message) {
+    this.showErrorModal('Repository Validation Error', message);
+  }
+
+  /**
+   * Show repository success modal
+   * 
+   * @param {string} owner - Repository owner
+   * @param {string} name - Repository name
+   * @returns {void}
+   */
+  showRepositorySuccessModal(owner, name) {
+    const bodyHTML = `
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <span style="font-size: 24px;">✅</span>
+        <div>
+          <p style="margin: 0; font-weight: 500;">Repository Updated Successfully!</p>
+          <p style="margin: 4px 0 0 0; color: #656d76; font-size: 13px;">
+            Now monitoring: <strong>${owner}/${name}</strong>
+          </p>
+        </div>
+      </div>
+      <p style="margin: 0; color: #656d76; font-size: 12px;">
+        The extension will refresh to load PRs from the new repository.
+      </p>
+    `;
+    
+    const footerHTML = `
+      <button class="modal-btn primary" onclick="prShepherd.modalManager.hideModal()">Got it</button>
+    `;
+    
+    this.showModal('Repository Updated', bodyHTML, footerHTML);
+  }
+
+  /**
+   * Show main settings menu
+   * 
+   * @returns {void}
+   */
+  showSettingsMenu() {
+    const bodyHTML = `
+      <div style="margin-bottom: 16px;">
+        <p><strong>⚙️ Settings</strong></p>
+        <p style="margin: 8px 0; color: #656d76; font-size: 13px;">
+          Configure your PR Shepherd extension preferences.
+        </p>
+      </div>
+      
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <button class="modal-btn" onclick="prShepherd.modalManager.hideModal(); prShepherd.modalManager.showRepositorySettings();" style="justify-content: flex-start; text-align: left; padding: 12px;">
+          <div>
+            <div style="font-weight: 500;">🏛️ Repository Settings</div>
+            <div style="font-size: 11px; color: #656d76; margin-top: 2px;">Configure which GitHub repository to monitor</div>
+          </div>
+        </button>
+        
+        <button class="modal-btn" onclick="prShepherd.modalManager.hideModal(); prShepherd.modalManager.showAuthSettings();" style="justify-content: flex-start; text-align: left; padding: 12px;">
+          <div>
+            <div style="font-weight: 500;">🔐 Authentication</div>
+            <div style="font-size: 11px; color: #656d76; margin-top: 2px;">Manage your GitHub authentication</div>
+          </div>
+        </button>
+      </div>
+    `;
+    
+    const footerHTML = `
+      <button class="modal-btn" onclick="prShepherd.modalManager.hideModal()">Close</button>
+    `;
+    
+    this.showModal('Settings', bodyHTML, footerHTML);
+  }
+
+  /**
    * Show tag management modal
    * 
    * @returns {void}
@@ -576,6 +769,7 @@ class PRShepherdSidebar {
    * @returns {Promise<void>}
    */
   async init() {
+    await this.loadRepositorySettings();
     await this.loadCustomTags();
     this.setupEventListeners();
     
@@ -676,7 +870,7 @@ class PRShepherdSidebar {
 
     // Settings button
     DOMSelectors.settingsBtn().addEventListener('click', () => {
-      this.modalManager.showAuthSettings();
+      this.modalManager.showSettingsMenu();
     });
 
     // Refresh button
@@ -1861,6 +2055,205 @@ class PRShepherdSidebar {
         this.manageCustomTags();
       }
     }, 100);
+  }
+
+  // Repository Settings Management
+  /**
+   * Load repository settings from storage
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
+  async loadRepositorySettings() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['repository_settings'], (result) => {
+        if (result.repository_settings) {
+          this.repo = result.repository_settings;
+          console.log(`📍 Loaded repository settings: ${this.repo.owner}/${this.repo.name}`);
+        } else {
+          this.repo = Constants.DEFAULT_REPO;
+          console.log(`📍 Using default repository: ${this.repo.owner}/${this.repo.name}`);
+        }
+        
+        // Update the header display
+        this.updateRepositoryDisplay();
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Save repository settings to storage
+   * 
+   * @async
+   * @param {string} owner - Repository owner
+   * @param {string} name - Repository name
+   * @returns {Promise<void>}
+   */
+  async saveRepositorySettings(owner, name) {
+    const newRepo = { owner, name };
+    
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ 
+        repository_settings: newRepo
+      }, () => {
+        console.log(`💾 Saved repository settings: ${owner}/${name}`);
+        
+        // Update current repo
+        const oldRepo = this.repo;
+        this.repo = newRepo;
+        
+        // Update header display
+        this.updateRepositoryDisplay();
+        
+        // Clear cache if repository changed
+        if (oldRepo.owner !== owner || oldRepo.name !== name) {
+          this.clearCacheAndRefresh();
+        }
+        
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Update the repository display in the header
+   * 
+   * @returns {void}
+   */
+  updateRepositoryDisplay() {
+    // Update the repo info in the header
+    const repoInfoElement = document.querySelector('.repo-info');
+    if (repoInfoElement) {
+      repoInfoElement.textContent = `${this.repo.owner}/${this.repo.name}`;
+    }
+  }
+
+  /**
+   * Validate repository access via GitHub API
+   * 
+   * @async
+   * @param {string} owner - Repository owner
+   * @param {string} name - Repository name
+   * @returns {Promise<boolean>} True if repository is accessible
+   */
+  async validateRepositoryAccess(owner, name) {
+    if (!this.token) {
+      throw new Error('No authentication token available');
+    }
+
+    try {
+      // Test repository access with a simple GraphQL query
+      const query = `
+        query TestRepositoryAccess($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+            id
+            name
+            owner {
+              login
+            }
+            viewerPermission
+          }
+        }
+      `;
+
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `bearer ${this.token}`,
+          'Content-Type': Constants.JSON_CONTENT_TYPE,
+        },
+        body: JSON.stringify({
+          query,
+          variables: { owner, name }
+        })
+      });
+
+      if (!response.ok) {
+        console.error('Repository validation HTTP error:', response.status, response.statusText);
+        return false;
+      }
+
+      const data = await response.json();
+      
+      if (data.errors) {
+        console.error('Repository validation GraphQL errors:', data.errors);
+        return false;
+      }
+
+      const repo = data.data?.repository;
+      if (!repo) {
+        console.error('Repository not found or not accessible');
+        return false;
+      }
+
+      // Check if user has at least read access
+      const permission = repo.viewerPermission;
+      const hasAccess = ['READ', 'TRIAGE', 'WRITE', 'MAINTAIN', 'ADMIN'].includes(permission);
+      
+      if (!hasAccess) {
+        console.error('Insufficient repository permissions:', permission);
+        return false;
+      }
+
+      console.log(`✅ Repository validation successful: ${owner}/${name} (${permission})`);
+      return true;
+
+    } catch (error) {
+      console.error('Repository validation error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Show repository validation status
+   * 
+   * @param {string} message - Status message to display
+   * @returns {void}
+   */
+  showRepositoryValidation(message) {
+    // Show a temporary status in the main content area
+    const prList = DOMSelectors.prList();
+    prList.innerHTML = `<div class="loading">${message}</div>`;
+  }
+
+  /**
+   * Hide repository validation status
+   * 
+   * @returns {void}
+   */
+  hideRepositoryValidation() {
+    // This will be replaced when PRs are loaded or error is shown
+  }
+
+  /**
+   * Clear cache and refresh with new repository
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
+  async clearCacheAndRefresh() {
+    try {
+      // Clear cached PR data
+      await new Promise((resolve) => {
+        chrome.storage.local.remove(['pr_cache'], resolve);
+      });
+      
+      console.log('🗑️ Cleared PR cache for repository change');
+      
+      // Reset state
+      this.allPRs = [];
+      this.filteredPRs = [];
+      this.lastUpdate = null;
+      
+      // Load fresh data
+      if (this.token) {
+        await this.loadPRs(true);
+      }
+      
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+    }
   }
 }
 
