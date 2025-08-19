@@ -169,7 +169,41 @@ Chrome Extension (Manifest V3)
 
 **Actual timeline: 2 weeks (faster than estimated 3-5 weeks)**
 
-### **📋 Next Phase Estimates** *(February 2025)*
+### **🏗️ Phase 3: Code Architecture Refactoring** *(February 2025)*
+
+**Priority: HIGH** - Critical for long-term sustainability
+
+#### **Current State Analysis**
+- **Total Code**: 8,893 lines (3,255 core app, 3,128 tests)
+- **Main Class**: 1,386 lines, 62 methods, 41 instance variables ❌
+- **Issues**: Monolithic structure, scattered DOM queries, remaining system modals
+- **Grade**: B+ (functional but needs architectural improvements)
+
+#### **Phase 3A: Quick Wins** *(Week 1)*
+- **Replace 6 remaining system modals** with custom modal system
+- **Extract DOMSelectors utility** to centralize DOM access (44 → <20 queries)
+- **Extract constants** to remove magic strings
+- **Add JSDoc documentation** for better code understanding
+
+#### **Phase 3B: Architectural Refactoring** *(Weeks 2-3)*
+- **Break up monolithic PRShepherdSidebar class** (1,386 lines → 6 focused modules):
+  - `PRShepherd` - Main controller (150 lines)
+  - `AuthManager` - Authentication & user state (200 lines)
+  - `GitHubAPI` - API calls, rate limiting, caching (300 lines)
+  - `UIManager` - DOM manipulation, events, rendering (400 lines)
+  - `TagManager` - Tag CRUD, assignments, persistence (200 lines)
+  - `ModalManager` - Custom modals, prompts (150 lines)
+- **Implement centralized state management** pattern
+- **Maintain 95%+ test coverage** during refactoring
+
+#### **Success Metrics**
+- ✅ **Class Size**: 1,386 lines → <200 lines per module
+- ✅ **Method Count**: 62 methods → <15 methods per class
+- ✅ **State Variables**: 41 variables → <10 per class
+- ✅ **System Modals**: 6 remaining → 0
+- ✅ **Test Coverage**: Maintain >95%
+
+### **📋 Future Phase Estimates** *(March+ 2025)*
 - **Multi-Repository Support**: 1-2 weeks
 - **Smart Notifications**: 1 week  
 - **Performance & IndexedDB**: 1-2 weeks

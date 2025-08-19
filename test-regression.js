@@ -38,13 +38,19 @@ function assertTrue(value, message = '') {
 
 const fs = require('fs');
 
-// CRITICAL: Test the simplified GraphQL query that is currently working
-test('GraphQL query maintains working structure', () => {
+// CRITICAL: Test the GitHub Search API query that replaced naive fetching
+test('GraphQL query uses GitHub Search API for filtering', () => {
   const sidebarCode = fs.readFileSync('sidebar.js', 'utf8');
   
-  // Ensure we're still using the simplified query (75 PRs, basic fields)
-  assertTrue(sidebarCode.includes('first: 75'), 'Query should limit to 75 PRs for completeness');
-  assertTrue(sidebarCode.includes('pullRequests(first: 75'), 'Should fetch 75 pull requests');
+  // Ensure we're using GitHub Search API instead of fetching everything
+  assertTrue(sidebarCode.includes('search(query: $reviewQuery'), 'Should use Search API for review requests');
+  assertTrue(sidebarCode.includes('search(query: $recentQuery'), 'Should use Search API for recent PRs');
+  assertTrue(sidebarCode.includes('review-requested:@me'), 'Should filter for review requests server-side');
+  
+  // Should NOT use the old naive approach
+  if (sidebarCode.includes('repository(owner:') && sidebarCode.includes('pullRequests(first:')) {
+    throw new Error('REGRESSION: Should not fetch all PRs from repository anymore');
+  }
   
   // Essential fields that must be present
   assertTrue(sidebarCode.includes('number'), 'Query must include PR number');
@@ -123,7 +129,7 @@ test('OAuth authentication structure intact', () => {
   assertTrue(oauthCode.includes('authenticate()'), 'OAuth authenticate method must exist');
 });
 
-// CRITICAL: Test that filtering and search work
+// CRITICAL: Test that filtering and search work with simplified system
 test('Search and filter functionality intact', () => {
   const sidebarCode = fs.readFileSync('sidebar.js', 'utf8');
   
@@ -131,10 +137,10 @@ test('Search and filter functionality intact', () => {
   assertTrue(sidebarCode.includes('shouldShowPR('), 'PR filtering function must exist');
   assertTrue(sidebarCode.includes('reviewerOnlyMode'), 'Reviewer-only filter must exist');
   
-  // Test key filter types
-  assertTrue(sidebarCode.includes("case 'ready':"), 'Ready filter must exist');
-  assertTrue(sidebarCode.includes("case 'wip':"), 'WIP filter must exist');
-  assertTrue(sidebarCode.includes("case 'pinged':"), 'Pinged filter must exist');
+  // Test simplified filter system
+  assertTrue(sidebarCode.includes("filter === 'all'"), 'All filter must exist');
+  assertTrue(sidebarCode.includes("filter === 'untagged'"), 'Untagged filter must exist');
+  assertTrue(sidebarCode.includes('customTags.some'), 'Custom tag filtering must exist');
 });
 
 // Test that manifest hasn't broken
@@ -148,16 +154,17 @@ test('Manifest maintains required permissions', () => {
   assertTrue(manifest.host_permissions.includes('https://api.github.com/*'), 'GitHub API access required');
 });
 
-// Test that HTML structure supports current functionality
+// Test that HTML structure supports simplified functionality
 test('HTML contains required elements for current functionality', () => {
   const html = fs.readFileSync('sidebar.html', 'utf8');
   
   assertTrue(html.includes('id="oauth-btn"'), 'OAuth button must exist');
   assertTrue(html.includes('id="pr-list"'), 'PR list container must exist');
   assertTrue(html.includes('id="search-input"'), 'Search input must exist');
-  assertTrue(html.includes('data-filter="ready"'), 'Ready filter button must exist');
-  assertTrue(html.includes('data-filter="wip"'), 'WIP filter button must exist');
-  assertTrue(html.includes('data-filter="pinged"'), 'Pinged filter button must exist');
+  assertTrue(html.includes('data-filter="all"'), 'All filter button must exist');
+  assertTrue(html.includes('data-filter="untagged"'), 'Untagged filter button must exist');
+  assertTrue(html.includes('id="create-tag-btn"'), 'Create tag button must exist');
+  assertTrue(html.includes('id="user-tag-filters"'), 'User tag filters container must exist');
 });
 
 // CRITICAL: Verify we haven't re-added notification code without permissions
