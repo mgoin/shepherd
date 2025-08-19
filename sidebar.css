@@ -568,6 +568,22 @@ body {
   white-space: nowrap;
 }
 
+/* Current Tab Indicator */
+.current-tab-indicator {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: #0969da;
+  color: white;
+  font-weight: 500;
+  margin-left: 6px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  animation: pulse 2s infinite;
+}
+
 
 /* Labels */
 .pr-labels {
@@ -808,6 +824,17 @@ body {
   to { 
     opacity: 1;
     transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { 
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.7;
+    transform: scale(0.95);
   }
 }
 

@@ -559,6 +559,7 @@ class PRShepherdSidebar {
     this.searchTerm = '';
     this.reviewerOnlyMode = true;
     this.includeTeamRequests = false;
+    this.currentTabPR = null; // Track PR currently open in browser tab
     this.oauthClient = new GitHubOAuth();
     
     // Initialize modal manager
@@ -577,6 +578,9 @@ class PRShepherdSidebar {
   async init() {
     await this.loadCustomTags();
     this.setupEventListeners();
+    
+    // Detect current PR in browser tab
+    await this.updateCurrentTabPR();
     
     // Show cached data immediately (before auth check)
     await this.loadCachedDataInstantly();
@@ -721,6 +725,17 @@ class PRShepherdSidebar {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'pr-updated') {
         this.loadPRsFromCache();
+      }
+    });
+
+    // Listen for tab changes to update current PR detection
+    chrome.tabs.onActivated.addListener(() => {
+      this.updateCurrentTabPR();
+    });
+    
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      if (changeInfo.url && tab.active) {
+        this.updateCurrentTabPR();
       }
     });
   }
@@ -1291,6 +1306,13 @@ class PRShepherdSidebar {
     const activityInfo = this.getActivityInfo(pr);
     const assignedTag = pr.customTag ? `<span class="custom-tag" style="background-color: ${pr.customTag.color}">📁 ${pr.customTag.name}</span>` : '';
     
+    // Check if this PR is currently open in browser tab
+    const isCurrentTabPR = this.currentTabPR && 
+                          this.currentTabPR.number === pr.number &&
+                          this.currentTabPR.owner === this.repo.owner &&
+                          this.currentTabPR.repo === this.repo.name;
+    const currentTabIndicator = isCurrentTabPR ? `<span class="current-tab-indicator" title="Currently viewing this PR">👁️ Viewing</span>` : '';
+    
     return `
       <div class="pr-item" 
            data-pr-number="${pr.number}"
@@ -1306,6 +1328,7 @@ class PRShepherdSidebar {
             </a>
             ${pr.isDraft ? '<span class="draft-badge">DRAFT</span>' : ''}
             ${assignedTag}
+            ${currentTabIndicator}
           </div>
           <div class="pr-actions">
             <button class="quick-tag-btn" data-pr-number="${pr.number}" title="Organize with tags">
@@ -1497,6 +1520,48 @@ class PRShepherdSidebar {
     if (diffMinutes < Constants.TIME_THRESHOLDS.MINUTES) return `${diffMinutes} minutes ago`;
     
     return date.toLocaleTimeString();
+  }
+
+  /**
+   * Detect and update the PR currently open in the browser tab
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
+  async updateCurrentTabPR() {
+    try {
+      const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+      const previousPR = this.currentTabPR;
+      
+      if (tab?.url) {
+        const match = tab.url.match(/https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/);
+        if (match) {
+          const [, owner, repo, prNumber] = match;
+          this.currentTabPR = { 
+            owner, 
+            repo, 
+            number: parseInt(prNumber),
+            url: tab.url 
+          };
+          console.log(`🎯 Current tab PR detected: ${owner}/${repo}#${prNumber}`);
+        } else {
+          this.currentTabPR = null;
+        }
+      } else {
+        this.currentTabPR = null;
+      }
+      
+      // Re-render PRs if current tab PR changed and we have PRs loaded
+      if (this.allPRs.length > 0 && 
+          (previousPR?.number !== this.currentTabPR?.number ||
+           previousPR?.owner !== this.currentTabPR?.owner ||
+           previousPR?.repo !== this.currentTabPR?.repo)) {
+        this.renderFilteredPRs();
+      }
+    } catch (error) {
+      console.log('Could not access tab information:', error.message);
+      this.currentTabPR = null;
+    }
   }
 
   // Custom Tags Functionality
