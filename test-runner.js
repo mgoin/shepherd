@@ -74,24 +74,37 @@ global.fetch = async (url, options) => {
       ok: true,
       json: () => Promise.resolve({
         data: {
-          repository: {
-            pullRequests: {
-              nodes: [
-                {
-                  id: 'test-id',
-                  number: 123,
-                  title: 'Test PR',
-                  state: 'OPEN',
-                  isDraft: false,
-                  author: { login: 'testuser' },
-                  reviewRequests: { nodes: [] },
-                  commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
-                  reviews: { nodes: [], totalCount: 0 },
-                  timelineItems: { nodes: [] },
-                  labels: { nodes: [] }
-                }
-              ]
-            }
+          reviewRequested: {
+            nodes: [
+              {
+                id: 'test-id-1',
+                number: 123,
+                title: 'Test PR with review request',
+                state: 'OPEN',
+                isDraft: false,
+                author: { login: 'testuser' },
+                reviewRequests: { nodes: [{ requestedReviewer: { login: 'testuser' } }] },
+                commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
+                reviews: { nodes: [], totalCount: 0 },
+                labels: { nodes: [] }
+              }
+            ]
+          },
+          recentPRs: {
+            nodes: [
+              {
+                id: 'test-id-2',
+                number: 456,
+                title: 'Recent PR',
+                state: 'OPEN',
+                isDraft: false,
+                author: { login: 'otheruser' },
+                reviewRequests: { nodes: [] },
+                commits: { nodes: [{ commit: { statusCheckRollup: { state: 'PENDING' } } }] },
+                reviews: { nodes: [], totalCount: 0 },
+                labels: { nodes: [] }
+              }
+            ]
           },
           viewer: { login: 'testuser' },
           rateLimit: { limit: 5000, remaining: 4999, resetAt: new Date().toISOString() }
@@ -134,81 +147,100 @@ test('Sidebar class has required methods', () => {
 });
 
 // Test 4: GraphQL query structure
-test('GraphQL query includes required fields', () => {
+test('GraphQL query uses Search API for filtering', () => {
   const fs = require('fs');
   const sidebarCode = fs.readFileSync('sidebar.js', 'utf8');
-  assertTrue(sidebarCode.includes('pullRequests'), 'Query includes pullRequests');
+  assertTrue(sidebarCode.includes('search(query:'), 'Query uses GitHub Search API');
+  assertTrue(sidebarCode.includes('reviewRequested:'), 'Query includes reviewRequested search');
+  assertTrue(sidebarCode.includes('recentPRs:'), 'Query includes recentPRs search');
+  assertTrue(sidebarCode.includes('review-requested:@me'), 'Query filters for review requests');
   assertTrue(sidebarCode.includes('reviewRequests'), 'Query includes reviewRequests');
-  assertTrue(sidebarCode.includes('timelineItems'), 'Query includes timelineItems');
-  assertTrue(sidebarCode.includes('ReviewRequestedEvent'), 'Query includes ReviewRequestedEvent');
+  assertTrue(sidebarCode.includes('statusCheckRollup'), 'Query includes CI status');
 });
 
 // Test 5: Custom tag functionality simulation
 test('Custom tag logic works correctly', () => {
-  // Simulate the shouldShowPR method logic
+  // Simulate the simplified shouldShowPR method logic
   function shouldShowPR(pr, filter, customTags) {
+    if (filter === 'all') {
+      return true;
+    }
+    
+    if (filter === 'untagged') {
+      return !pr.customTag;
+    }
+    
     if (customTags.some(tag => tag.name === filter)) {
       return pr.customTag?.name === filter;
     }
     
-    switch (filter) {
-      case 'ready':
-        return !pr.isDraft && pr.state === 'OPEN' && pr.reviewDecision !== 'APPROVED';
-      case 'wip':
-        return pr.isDraft;
-      case 'finished':
-        return pr.state === 'MERGED' || pr.state === 'CLOSED' || pr.reviewDecision === 'APPROVED';
-      default:
-        return true;
-    }
+    return true;
   }
 
-  const testPR = {
+  const testPRWithTag = {
     isDraft: false,
     state: 'OPEN',
     reviewDecision: null,
     customTag: { name: 'urgent' }
   };
 
+  const testPRWithoutTag = {
+    isDraft: false,
+    state: 'OPEN',
+    reviewDecision: null
+  };
+
   const customTags = [{ name: 'urgent', color: '#ff0000' }];
 
-  assertTrue(shouldShowPR(testPR, 'ready', customTags), 'Ready filter works');
-  assertTrue(shouldShowPR(testPR, 'urgent', customTags), 'Custom tag filter works');
-  assertFalse(shouldShowPR(testPR, 'wip', customTags), 'WIP filter excludes non-draft');
+  assertTrue(shouldShowPR(testPRWithTag, 'all', customTags), 'All filter shows tagged PR');
+  assertTrue(shouldShowPR(testPRWithoutTag, 'all', customTags), 'All filter shows untagged PR');
+  assertTrue(shouldShowPR(testPRWithTag, 'urgent', customTags), 'Custom tag filter works');
+  assertFalse(shouldShowPR(testPRWithTag, 'untagged', customTags), 'Untagged filter excludes tagged PR');
+  assertTrue(shouldShowPR(testPRWithoutTag, 'untagged', customTags), 'Untagged filter shows untagged PR');
 });
 
 // Test 6: Activity detection logic
 test('Activity detection logic works', () => {
-  function hasRecentActivity(pr, currentUser) {
+  function getActivityInfo(pr, currentUser) {
+    if (!currentUser) return '';
+    
+    const activities = [];
+    
+    // Check if user is requested for review
+    const reviewRequests = pr.reviewRequests?.nodes || [];
+    const isDirectReviewer = reviewRequests.some(req => {
+      const reviewer = req.requestedReviewer;
+      return reviewer?.login === currentUser.login;
+    });
+    
+    if (isDirectReviewer) {
+      activities.push('🔔 Review requested');
+    }
+    
+    // Check for recent updates (within 1 day)
     const now = Date.now();
     const oneDayAgo = now - (24 * 60 * 60 * 1000);
+    const updatedAt = new Date(pr.updatedAt).getTime();
     
-    // Check for recent pings
-    const recentPings = pr.timelineItems?.nodes?.filter(item => {
-      if (item.__typename === 'ReviewRequestedEvent') {
-        const createdAt = new Date(item.createdAt).getTime();
-        const targetedMe = item.requestedReviewer?.login === currentUser.login;
-        return targetedMe && createdAt > oneDayAgo;
-      }
-      return false;
-    }) || [];
+    if (updatedAt > oneDayAgo) {
+      activities.push('🔄 Recently updated');
+    }
     
-    return recentPings.length > 0;
+    return activities.length > 0 ? activities.join(' • ') : '';
   }
 
-  const testPR = {
-    timelineItems: {
-      nodes: [{
-        __typename: 'ReviewRequestedEvent',
-        createdAt: new Date().toISOString(), // Recent
-        requestedReviewer: { login: 'testuser' }
-      }]
-    }
+  const testPRWithReview = {
+    reviewRequests: {
+      nodes: [{ requestedReviewer: { login: 'testuser' } }]
+    },
+    updatedAt: new Date().toISOString()
   };
 
   const currentUser = { login: 'testuser' };
   
-  assertTrue(hasRecentActivity(testPR, currentUser), 'Detects recent pings correctly');
+  const activity = getActivityInfo(testPRWithReview, currentUser);
+  assertTrue(activity.includes('Review requested'), 'Detects review requests correctly');
+  assertTrue(activity.includes('Recently updated'), 'Detects recent updates correctly');
 });
 
 // Test 7: Search functionality
@@ -250,9 +282,10 @@ test('Sidebar HTML has required elements', () => {
   assertTrue(html.includes('id="oauth-btn"'), 'OAuth button exists');
   assertTrue(html.includes('id="pat-btn"'), 'PAT button exists');
   assertTrue(html.includes('id="pr-list"'), 'PR list container exists');
-  assertTrue(html.includes('id="custom-tag-filters"'), 'Custom tag filters container exists');
-  assertTrue(html.includes('data-filter="pinged"'), 'Pinged filter exists');
-  assertTrue(html.includes('data-filter="author-active"'), 'Author active filter exists');
+  assertTrue(html.includes('id="user-tag-filters"'), 'User tag filters container exists');
+  assertTrue(html.includes('id="create-tag-btn"'), 'Create tag button exists');
+  assertTrue(html.includes('data-filter="all"'), 'All filter exists');
+  assertTrue(html.includes('data-filter="untagged"'), 'Untagged filter exists');
 });
 
 // Test 10: CSS has required classes
@@ -264,7 +297,8 @@ test('CSS has required styling classes', () => {
   assertTrue(css.includes('.custom-tag'), 'Custom tag styling exists');
   assertTrue(css.includes('.oauth-btn'), 'OAuth button styling exists');
   assertTrue(css.includes('.filter-btn'), 'Filter button styling exists');
-  assertTrue(css.includes('.tag-assignments'), 'Tag assignments styling exists');
+  assertTrue(css.includes('.create-tag-btn'), 'Create tag button styling exists');
+  assertTrue(css.includes('.quick-tag-btn'), 'Quick tag button styling exists');
 });
 
 // Run all tests and report results

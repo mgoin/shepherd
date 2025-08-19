@@ -132,46 +132,8 @@ jobs:
       with:
         node-version: '20.x'
         
-    - name: 🔗 Test GraphQL query structure
-      run: |
-        echo "Testing GraphQL query structure..."
-        node -e "
-          const fs = require('fs');
-          const content = fs.readFileSync('sidebar.js', 'utf8');
-          const hasQuery = content.includes('query GetVLLMPRs');
-          const hasFields = ['pullRequests', 'reviewRequests', 'timelineItems'].every(field => 
-            content.includes(field)
-          );
-          if (!hasQuery || !hasFields) {
-            throw new Error('GraphQL query structure invalid');
-          }
-          console.log('✅ GraphQL query structure is valid');
-        "
-        
-    - name: 🏷️ Test custom tag functionality
-      run: |
-        echo "Testing custom tag logic..."
-        node -e "
-          // Test the custom tag filtering logic
-          function shouldShowPR(pr, filter, customTags) {
-            if (customTags.some(tag => tag.name === filter)) {
-              return pr.customTag?.name === filter;
-            }
-            switch (filter) {
-              case 'ready': return !pr.isDraft && pr.state === 'OPEN';
-              case 'wip': return pr.isDraft;
-              default: return true;
-            }
-          }
-          
-          const testPR = { isDraft: false, state: 'OPEN', customTag: { name: 'urgent' } };
-          const tags = [{ name: 'urgent' }];
-          
-          if (!shouldShowPR(testPR, 'urgent', tags)) {
-            throw new Error('Custom tag filtering failed');
-          }
-          console.log('✅ Custom tag functionality works');
-        "
+    - name: 🔗 Run integration tests
+      run: node test-integration.js
 
   build:
     name: Build Check

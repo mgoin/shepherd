@@ -1,10 +1,542 @@
 // PR Shepherd Sidebar Script
 
+/**
+ * @fileoverview PR Shepherd Chrome Extension - GitHub PR Management Sidebar
+ * @author Claude Code
+ * @version 3.0.0
+ * 
+ * A Chrome extension for managing GitHub pull requests in the vLLM repository.
+ * Features OAuth authentication, smart filtering, custom tags, and performance optimization.
+ */
+
+/**
+ * Centralized DOM selectors utility
+ * Provides easy access to frequently used DOM elements
+ * 
+ * @namespace DOMSelectors
+ * @description Functions that return DOM elements, organized by functional area.
+ * Using functions instead of direct element references ensures elements exist when accessed.
+ */
+const DOMSelectors = {
+  // Auth section elements
+  authSection: () => document.getElementById('auth-section'),
+  mainContent: () => document.getElementById('main-content'),
+  authStatus: () => document.getElementById('auth-status'),
+  authStatusText: () => document.getElementById('auth-status-text'),
+  
+  // Header elements
+  oauthBtn: () => document.getElementById('oauth-btn'),
+  patBtn: () => document.getElementById('pat-btn'),
+  settingsBtn: () => document.getElementById('settings-btn'),
+  refreshBtn: () => document.getElementById('refresh-btn'),
+  
+  // Search and filter elements
+  searchInput: () => document.getElementById('search-input'),
+  reviewerOnlyCheckbox: () => document.getElementById('reviewer-only'),
+  includeTeamsCheckbox: () => document.getElementById('include-teams'),
+  createTagBtn: () => document.getElementById('create-tag-btn'),
+  manageTagsBtn: () => document.getElementById('manage-tags-btn'),
+  userTagFilters: () => document.getElementById('user-tag-filters'),
+  
+  // Main content elements
+  prList: () => document.getElementById('pr-list'),
+  
+  // Footer elements
+  rateLimitInfo: () => document.getElementById('rate-limit-info'),
+  lastUpdate: () => document.getElementById('last-update'),
+  
+  // Modal elements
+  modalOverlay: () => document.getElementById('modal-overlay'),
+  modalTitle: () => document.getElementById('modal-title'),
+  modalBody: () => document.getElementById('modal-body'),
+  modalFooter: () => document.getElementById('modal-footer'),
+  modalClose: () => document.getElementById('modal-close'),
+  
+  // Dynamic elements (created at runtime)
+  promptInput: () => document.getElementById('prompt-input'),
+  tokenInput: () => document.getElementById('token-input'),
+  
+  // Query selectors for multiple elements
+  filterBtns: () => document.querySelectorAll('.filter-btn'),
+  quickTagBtns: () => document.querySelectorAll('.quick-tag-btn'),
+  tagSelectors: () => document.querySelectorAll('.tag-selector'),
+  sidebarContainer: () => document.querySelector('.sidebar-container')
+};
+
+/**
+ * Application constants
+ * Centralized configuration values and magic numbers
+ * 
+ * @namespace Constants
+ * @description All configuration constants used throughout the application.
+ * Organized by functional area for easy maintenance and updates.
+ */
+const Constants = {
+  // API Configuration
+  GITHUB_API_BASE_URL: 'https://api.github.com/graphql',
+  GITHUB_REST_API_BASE_URL: 'https://api.github.com',
+  
+  // Rate limiting
+  RATE_LIMIT_THRESHOLD: 50,
+  DEFAULT_RATE_LIMIT: 5000,
+  RATE_LIMIT_BUFFER_HOURS: 1, // 3600000ms buffer
+  
+  // Timing (milliseconds)
+  AUTO_REFRESH_INTERVAL: 5 * 60 * 1000, // 5 minutes
+  CACHE_FRESHNESS_THRESHOLD: 2 * 60 * 1000, // 2 minutes 
+  ONE_DAY_MS: 24 * 60 * 60 * 1000,
+  ONE_HOUR_MS: 60 * 60 * 1000,
+  ONE_MINUTE_MS: 60 * 1000,
+  
+  // UI Dimensions
+  TAG_MENU_WIDTH: 180,
+  TAG_MENU_MIN_WIDTH: 120,
+  TAG_MENU_MAX_HEIGHT: 200,
+  TAG_ITEM_HEIGHT: 36,
+  UI_MARGIN: 20,
+  
+  // GitHub API Limits
+  MAX_REVIEW_REQUESTED_PRS: 50,
+  MAX_RECENT_PRS: 30,
+  
+  // HTTP Status Codes
+  HTTP_UNAUTHORIZED: 401,
+  HTTP_FORBIDDEN: 403,
+  HTTP_BAD_GATEWAY: 502,
+  HTTP_SERVICE_UNAVAILABLE: 503,
+  HTTP_GATEWAY_TIMEOUT: 504,
+  
+  // Content Types
+  GITHUB_V3_ACCEPT: 'application/vnd.github.v3+json',
+  JSON_CONTENT_TYPE: 'application/json',
+  
+  // CI Status Icons
+  CI_ICONS: {
+    SUCCESS: '✅',
+    FAILURE: '❌', 
+    ERROR: '🚫',
+    PENDING: '🟡',
+    IN_PROGRESS: '🔄',
+    QUEUED: '⏳',
+    COMPLETED: '✅',
+    CANCELLED: '⚪',
+    SKIPPED: '⏭️',
+    NEUTRAL: '⚪',
+    TIMED_OUT: '⏰',
+    ACTION_REQUIRED: '⚠️',
+    UNKNOWN: '❓'
+  },
+  
+  // Tag Colors
+  TAG_COLORS: [
+    '#0969da', '#2da44e', '#d1242f', '#bf8700', 
+    '#8250df', '#cf222e', '#1f883d', '#9a6700',
+    '#0550ae', '#6f42c1', '#e36209', '#d73a49'
+  ],
+  
+  // Default Repository
+  DEFAULT_REPO: { 
+    owner: 'vllm-project', 
+    name: 'vllm' 
+  },
+  
+  // Authentication Methods
+  AUTH_METHODS: {
+    OAUTH: 'oauth',
+    PAT: 'pat'
+  },
+  
+  // Time Format Thresholds
+  TIME_THRESHOLDS: {
+    JUST_NOW: 1, // minute
+    MINUTES: 60, // minutes
+    HOURS: 24 // hours
+  }
+};
+
+/**
+ * Modal management system
+ * Handles all custom modal dialogs and user interactions
+ * 
+ * @class ModalManager
+ * @description Manages modal dialogs, prompts, confirmations, and specialized auth modals.
+ * Provides a consistent interface for all modal interactions in the application.
+ */
+class ModalManager {
+  /**
+   * Initialize modal manager and set up event listeners
+   * 
+   * @param {PRShepherdSidebar} prShepherd - Reference to main application instance
+   */
+  constructor(prShepherd) {
+    this.prShepherd = prShepherd;
+    this.setupModal();
+  }
+
+  /**
+   * Set up modal event listeners
+   * Handles overlay clicks, close button, and keyboard navigation
+   * 
+   * @returns {void}
+   */
+  setupModal() {
+    const overlay = DOMSelectors.modalOverlay();
+    const closeBtn = DOMSelectors.modalClose();
+    
+    // Close modal when clicking overlay
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        this.hideModal();
+      }
+    });
+    
+    // Close modal when clicking X
+    closeBtn.addEventListener('click', () => {
+      this.hideModal();
+    });
+    
+    // Close modal on Escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && overlay.style.display !== 'none') {
+        this.hideModal();
+      }
+    });
+  }
+
+  /**
+   * Display a custom modal dialog
+   * 
+   * @param {string} title - Modal title text
+   * @param {string} bodyHTML - HTML content for modal body
+   * @param {string} [footerHTML=''] - HTML content for modal footer
+   * @returns {void}
+   */
+  showModal(title, bodyHTML, footerHTML = '') {
+    const overlay = DOMSelectors.modalOverlay();
+    const titleEl = DOMSelectors.modalTitle();
+    const bodyEl = DOMSelectors.modalBody();
+    const footerEl = DOMSelectors.modalFooter();
+    
+    titleEl.textContent = title;
+    bodyEl.innerHTML = bodyHTML;
+    footerEl.innerHTML = footerHTML;
+    
+    overlay.style.display = 'flex';
+    
+    // Focus first input if exists
+    const firstInput = bodyEl.querySelector('input, textarea');
+    if (firstInput) {
+      setTimeout(() => firstInput.focus(), 100);
+    }
+  }
+
+  /**
+   * Hide the currently displayed modal
+   * 
+   * @returns {void}
+   */
+  hideModal() {
+    const overlay = DOMSelectors.modalOverlay();
+    overlay.style.display = 'none';
+  }
+
+  /**
+   * Show confirmation dialog with custom actions
+   * 
+   * @param {string} title - Dialog title
+   * @param {string} message - Confirmation message
+   * @param {string} onConfirm - Function name to call on confirm
+   * @param {string|null} [onCancel=null] - Function name to call on cancel
+   * @returns {void}
+   */
+  showConfirm(title, message, onConfirm, onCancel = null) {
+    const footerHTML = `
+      <button class="modal-btn" onclick="prShepherd.modalManager.hideModal(); ${onCancel ? onCancel + '()' : ''}">Cancel</button>
+      <button class="modal-btn danger" onclick="prShepherd.modalManager.hideModal(); ${onConfirm}()">Confirm</button>
+    `;
+    
+    this.showModal(title, `<p>${message}</p>`, footerHTML);
+  }
+
+  /**
+   * Show input prompt dialog with suggestions
+   * 
+   * @param {string} title - Dialog title
+   * @param {string} message - Prompt message
+   * @param {string} [defaultValue=''] - Default input value
+   * @param {string} onSubmit - Function name to call on submit
+   * @param {Array<string>} [suggestions=[]] - Suggested values
+   * @returns {void}
+   */
+  showPrompt(title, message, defaultValue = '', onSubmit, suggestions = []) {
+    let suggestionsHTML = '';
+    if (suggestions.length > 0) {
+      suggestionsHTML = `
+        <div class="suggestions">
+          <div class="suggestions-title">Suggestions:</div>
+          <div class="suggestion-tags">
+            ${suggestions.map(s => `<span class="suggestion-tag" onclick="DOMSelectors.promptInput().value='${s}'">${s}</span>`).join('')}
+          </div>
+        </div>
+      `;
+    }
+    
+    const bodyHTML = `
+      <p>${message}</p>
+      ${suggestionsHTML}
+      <input type="text" class="modal-input" id="prompt-input" value="${defaultValue}" placeholder="Enter value...">
+    `;
+    
+    const footerHTML = `
+      <button class="modal-btn" onclick="prShepherd.modalManager.hideModal()">Cancel</button>
+      <button class="modal-btn primary" onclick="prShepherd.modalManager.submitPrompt('${onSubmit}')">Create</button>
+    `;
+    
+    this.showModal(title, bodyHTML, footerHTML);
+    
+    // Handle Enter key
+    setTimeout(() => {
+      const input = DOMSelectors.promptInput();
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          this.submitPrompt(onSubmit);
+        }
+      });
+    }, 100);
+  }
+
+  /**
+   * Submit prompt dialog input
+   * 
+   * @param {string} onSubmit - Function name to call with input value
+   * @returns {void}
+   */
+  submitPrompt(onSubmit) {
+    const input = DOMSelectors.promptInput();
+    const value = input.value.trim();
+    if (value) {
+      this.hideModal();
+      // Call the callback function with the value
+      if (typeof onSubmit === 'string') {
+        // Handle function name as string
+        if (onSubmit === 'createTag') {
+          this.prShepherd.createTagWithValue(value);
+        } else if (onSubmit === 'createFirstTag') {
+          this.prShepherd.createFirstTagWithValue(value);
+        }
+      } else if (typeof onSubmit === 'function') {
+        onSubmit(value);
+      }
+    }
+  }
+
+  /**
+   * Show GitHub token input modal
+   * 
+   * @returns {void}
+   */
+  showTokenInputModal() {
+    const bodyHTML = `
+      <div style="margin-bottom: 16px;">
+        <p><strong>🔑 GitHub Personal Access Token Setup</strong></p>
+        <ol style="margin: 12px 0; padding-left: 20px; font-size: 13px; line-height: 1.4;">
+          <li>Go to: <a href="https://github.com/settings/tokens" target="_blank" style="color: #0969da;">github.com/settings/tokens</a></li>
+          <li>Click "Generate new token (classic)"</li>
+          <li>Select these scopes:
+            <ul style="margin-top: 4px;">
+              <li>✅ <code>repo</code> (Full control of private repositories)</li>
+              <li>✅ <code>read:org</code> (Read org and team membership)</li>
+            </ul>
+          </li>
+          <li>Copy and paste the token below:</li>
+        </ol>
+      </div>
+      <input type="password" class="modal-input" id="token-input" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+      <div style="font-size: 11px; color: #656d76; margin-top: 8px;">
+        💡 Your token is stored locally and never sent to external servers
+      </div>
+    `;
+    
+    const footerHTML = `
+      <button class="modal-btn" onclick="prShepherd.modalManager.hideModal()">Cancel</button>
+      <button class="modal-btn primary" onclick="prShepherd.modalManager.submitTokenInput()">Connect</button>
+    `;
+    
+    this.showModal('GitHub Token Setup', bodyHTML, footerHTML);
+    
+    // Handle Enter key
+    setTimeout(() => {
+      const input = DOMSelectors.tokenInput();
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          this.submitTokenInput();
+        }
+      });
+    }, 100);
+  }
+
+  /**
+   * Submit token input and validate
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
+  async submitTokenInput() {
+    const input = DOMSelectors.tokenInput();
+    const token = input.value.trim();
+    
+    if (!token) {
+      this.showTokenValidationError('Please enter a token.');
+      return;
+    }
+    
+    // Validate token format
+    if (!token.startsWith('ghp_') && !token.startsWith('github_pat_')) {
+      this.showTokenValidationError('Invalid token format. GitHub tokens start with "ghp_" or "github_pat_"');
+      return;
+    }
+    
+    this.hideModal();
+    
+    try {
+      this.prShepherd.showAuthStatus('Validating token...');
+      
+      const authResult = await this.prShepherd.oauthClient.authenticateWithPAT(token);
+      
+      if (authResult && authResult.authenticated) {
+        this.prShepherd.hideAuthStatus();
+        await this.prShepherd.checkAuth();
+        await this.prShepherd.loadPRs();
+      } else {
+        this.showTokenValidationError('Invalid token. Please check your token and try again.');
+      }
+    } catch (error) {
+      console.error('PAT authentication failed:', error);
+      this.showTokenValidationError(`Token validation failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Show token validation error
+   * 
+   * @param {string} message - Error message
+   * @returns {void}
+   */
+  showTokenValidationError(message) {
+    this.showErrorModal('Token Validation Error', message);
+  }
+
+  /**
+   * Show generic error modal
+   * 
+   * @param {string} title - Error title
+   * @param {string} message - Error message
+   * @returns {void}
+   */
+  showErrorModal(title, message) {
+    const bodyHTML = `
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <span style="font-size: 24px;">⚠️</span>
+        <p style="margin: 0; line-height: 1.4;">${message}</p>
+      </div>
+    `;
+    
+    const footerHTML = `
+      <button class="modal-btn primary" onclick="prShepherd.modalManager.hideModal()">OK</button>
+    `;
+    
+    this.showModal(title, bodyHTML, footerHTML);
+  }
+
+  /**
+   * Show authentication settings modal
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
+  async showAuthSettings() {
+    const currentAuth = await this.prShepherd.oauthClient.getCurrentAuth();
+    
+    if (!currentAuth) {
+      this.showErrorModal('No Authentication', 'No authentication configured. Please connect to GitHub first.');
+      return;
+    }
+
+    const method = currentAuth.method === Constants.AUTH_METHODS.OAUTH ? 'OAuth' : 'Personal Access Token';
+    
+    const bodyHTML = `
+      <p>Currently authenticated via <strong>${method}</strong></p>
+      <p style="margin-top: 12px; color: #656d76; font-size: 13px;">
+        Would you like to logout and connect a different account?
+      </p>
+    `;
+    
+    const footerHTML = `
+      <button class="modal-btn" onclick="prShepherd.modalManager.hideModal()">Cancel</button>
+      <button class="modal-btn danger" onclick="prShepherd.modalManager.confirmLogout()">Logout</button>
+    `;
+    
+    this.showModal('Authentication Settings', bodyHTML, footerHTML);
+  }
+
+  /**
+   * Confirm logout action
+   * 
+   * @returns {void}
+   */
+  confirmLogout() {
+    this.hideModal();
+    this.prShepherd.logout();
+  }
+
+  /**
+   * Show tag management modal
+   * 
+   * @returns {void}
+   */
+  showTagManagement() {
+    if (this.prShepherd.customTags.length === 0) {
+      this.showModal(
+        'No Tags Created',
+        '<p>No custom tags created yet. Click the <strong>+ Add Tag</strong> button to create your first tag.</p>',
+        '<button class="modal-btn primary" onclick="prShepherd.modalManager.hideModal()">Got it</button>'
+      );
+      return;
+    }
+
+    const tagList = this.prShepherd.customTags.map((tag, index) => 
+      `<div class="tag-item" style="display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid #d1d9e0; border-radius: 6px; margin-bottom: 8px;">
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: ${tag.color};"></span>
+        <span style="flex: 1;">${tag.name}</span>
+        <button class="modal-btn danger" onclick="prShepherd.deleteTag(${index})" style="padding: 4px 8px; font-size: 11px;">Delete</button>
+      </div>`
+    ).join('');
+    
+    this.showModal(
+      'Manage Tags',
+      `<div style="margin-bottom: 16px;"><strong>Your tags:</strong></div>${tagList}`,
+      '<button class="modal-btn" onclick="prShepherd.modalManager.hideModal()">Close</button>'
+    );
+  }
+}
+
+/**
+ * Main PR Shepherd extension class
+ * Manages GitHub pull request viewing, filtering, and organization
+ * 
+ * @class PRShepherdSidebar
+ * @description A Chrome extension sidebar for managing GitHub PRs in the vLLM repository.
+ * Provides OAuth authentication, real-time filtering, custom tags, and efficient caching.
+ */
 class PRShepherdSidebar {
+  /**
+   * Initialize the PR Shepherd sidebar
+   * Sets up API configuration, state management, and OAuth client
+   */
   constructor() {
-    this.baseUrl = 'https://api.github.com/graphql';
-    this.repo = { owner: 'vllm-project', name: 'vllm' };
-    this.rateLimitInfo = { remaining: 5000, reset: 0 };
+    this.baseUrl = Constants.GITHUB_API_BASE_URL;
+    this.repo = Constants.DEFAULT_REPO;
+    this.rateLimitInfo = { remaining: Constants.DEFAULT_RATE_LIMIT, reset: 0 };
     this.lastUpdate = null;
     this.allPRs = [];
     this.filteredPRs = [];
@@ -16,24 +548,46 @@ class PRShepherdSidebar {
     this.includeTeamRequests = false;
     this.oauthClient = new GitHubOAuth();
     
+    // Initialize modal manager
+    this.modalManager = new ModalManager(this);
+    
     this.init();
   }
 
+  /**
+   * Initialize the application
+   * Sets up tags, event listeners, loads cached data, and starts authentication
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
   async init() {
     await this.loadCustomTags();
-    await this.checkAuth();
     this.setupEventListeners();
     
-    // Load cached data first, then fetch fresh data
-    await this.loadCachedData();
-    this.loadPRs(); // Don't await - let it happen in background
+    // Show cached data immediately (before auth check)
+    await this.loadCachedDataInstantly();
+    
+    await this.checkAuth();
+    
+    // After auth, refresh data in background if needed
+    if (this.token) {
+      this.loadPRs(); // Don't await - let it happen in background
+    }
     
     this.setupAutoRefresh();
   }
 
+  /**
+   * Check and validate user authentication
+   * Supports both OAuth and Personal Access Token authentication
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
   async checkAuth() {
-    const authSection = document.getElementById('auth-section');
-    const mainContent = document.getElementById('main-content');
+    const authSection = DOMSelectors.authSection();
+    const mainContent = DOMSelectors.mainContent();
     
     try {
       // Check OAuth authentication first
@@ -52,10 +606,10 @@ class PRShepherdSidebar {
         this.token = currentAuth.token;
         
         // Validate the token and get user info
-        const response = await fetch('https://api.github.com/user', {
+        const response = await fetch(`${Constants.GITHUB_REST_API_BASE_URL}/user`, {
           headers: {
             'Authorization': `token ${this.token}`,
-            'Accept': 'application/vnd.github.v3+json'
+            'Accept': Constants.GITHUB_V3_ACCEPT
           }
         });
 
@@ -86,60 +640,67 @@ class PRShepherdSidebar {
     return currentAuth ? currentAuth.token : null;
   }
 
+  /**
+   * Set up all event listeners for user interactions
+   * Handles buttons, filters, search, and background message communication
+   * 
+   * @returns {void}
+   */
   setupEventListeners() {
     // OAuth button
-    document.getElementById('oauth-btn').addEventListener('click', () => {
+    DOMSelectors.oauthBtn().addEventListener('click', () => {
       this.handleOAuthFlow();
     });
 
     // PAT button
-    document.getElementById('pat-btn').addEventListener('click', () => {
+    DOMSelectors.patBtn().addEventListener('click', () => {
       this.handlePATFlow();
     });
 
     // Settings button
-    document.getElementById('settings-btn').addEventListener('click', () => {
-      this.showAuthSettings();
+    DOMSelectors.settingsBtn().addEventListener('click', () => {
+      this.modalManager.showAuthSettings();
     });
 
     // Refresh button
-    document.getElementById('refresh-btn').addEventListener('click', () => {
+    DOMSelectors.refreshBtn().addEventListener('click', () => {
       this.loadPRs(true);
     });
 
     // Search input
-    const searchInput = document.getElementById('search-input');
+    const searchInput = DOMSelectors.searchInput();
     searchInput.addEventListener('input', (e) => {
       this.searchTerm = e.target.value.toLowerCase();
       this.applyFilters();
     });
 
     // Reviewer only checkbox
-    document.getElementById('reviewer-only').addEventListener('change', (e) => {
+    DOMSelectors.reviewerOnlyCheckbox().addEventListener('change', (e) => {
       this.reviewerOnlyMode = e.target.checked;
+      console.log(`👤 Reviewer only mode: ${this.reviewerOnlyMode}`);
       this.applyFilters();
     });
 
     // Include team requests checkbox
-    document.getElementById('include-teams').addEventListener('change', (e) => {
+    DOMSelectors.includeTeamsCheckbox().addEventListener('change', (e) => {
       this.includeTeamRequests = e.target.checked;
       this.applyFilters();
     });
 
     // Filter buttons
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    DOMSelectors.filterBtns().forEach(btn => {
       btn.addEventListener('click', (e) => {
         this.handleFilterClick(e);
       });
     });
 
-    // Add tag button
-    document.getElementById('add-tag-btn').addEventListener('click', () => {
+    // Create tag button
+    DOMSelectors.createTagBtn().addEventListener('click', () => {
       this.createCustomTag();
     });
 
     // Manage tags button
-    document.getElementById('manage-tags-btn').addEventListener('click', () => {
+    DOMSelectors.manageTagsBtn().addEventListener('click', () => {
       this.manageCustomTags();
     });
 
@@ -149,24 +710,6 @@ class PRShepherdSidebar {
         this.loadPRsFromCache();
       }
     });
-
-    // CI status expansion toggle
-    document.addEventListener('click', (e) => {
-      if (e.target.closest('.ci-summary')) {
-        const statusContainer = e.target.closest('.ci-status-detailed');
-        const details = statusContainer?.querySelector('.ci-details');
-        if (details) {
-          const isVisible = details.style.display !== 'none';
-          details.style.display = isVisible ? 'none' : 'block';
-          
-          // Update summary visual state
-          const summary = statusContainer.querySelector('.ci-summary');
-          if (summary) {
-            summary.classList.toggle('expanded', !isVisible);
-          }
-        }
-      }
-    });
   }
 
   setupAutoRefresh() {
@@ -174,13 +717,13 @@ class PRShepherdSidebar {
     setInterval(() => {
       if (document.visibilityState === 'visible' && this.token) {
         // Only refresh if we have sufficient rate limit remaining
-        if (this.rateLimitInfo.remaining > 50) {
+        if (this.rateLimitInfo.remaining > Constants.RATE_LIMIT_THRESHOLD) {
           this.loadPRs();
         } else {
           console.log('Skipping auto-refresh due to low rate limit:', this.rateLimitInfo.remaining);
         }
       }
-    }, 5 * 60 * 1000);
+    }, Constants.AUTO_REFRESH_INTERVAL);
   }
 
   async handleOAuthFlow() {
@@ -203,61 +746,9 @@ class PRShepherdSidebar {
   }
 
   async handlePATFlow() {
-    const token = prompt(
-      '🔑 GitHub Personal Access Token Setup\n\n' +
-      '1. Go to: https://github.com/settings/tokens\n' +
-      '2. Click "Generate new token (classic)"\n' +
-      '3. Select these scopes:\n' +
-      '   ✅ repo (Full control of private repositories)\n' +
-      '   ✅ read:org (Read org and team membership)\n' +
-      '4. Copy and paste the token below:\n\n' +
-      'Token:'
-    );
-    
-    if (token && token.trim()) {
-      try {
-        // Validate token format
-        if (!token.trim().startsWith('ghp_') && !token.trim().startsWith('github_pat_')) {
-          alert('⚠️ Invalid token format. GitHub tokens start with "ghp_" or "github_pat_"');
-          return;
-        }
-        
-        this.showAuthStatus('Validating token...');
-        
-        const authResult = await this.oauthClient.authenticateWithPAT(token.trim());
-        
-        if (authResult && authResult.authenticated) {
-          this.hideAuthStatus();
-          await this.checkAuth();
-          await this.loadPRs();
-        } else {
-          this.showAuthError('Invalid token. Please check your token and try again.');
-        }
-      } catch (error) {
-        console.error('PAT authentication failed:', error);
-        this.showAuthError(`Token validation failed: ${error.message}`);
-      }
-    }
+    this.modalManager.showTokenInputModal();
   }
 
-  async showAuthSettings() {
-    const currentAuth = await this.oauthClient.getCurrentAuth();
-    
-    if (!currentAuth) {
-      alert('No authentication configured. Please connect to GitHub first.');
-      return;
-    }
-
-    const method = currentAuth.method === 'oauth' ? 'OAuth' : 'Personal Access Token';
-    const action = confirm(
-      `Currently authenticated via ${method}\n\n` +
-      'Would you like to logout and connect a different account?'
-    );
-
-    if (action) {
-      await this.logout();
-    }
-  }
 
   async logout() {
     try {
@@ -269,31 +760,30 @@ class PRShepherdSidebar {
       await this.checkAuth();
     } catch (error) {
       console.error('Logout failed:', error);
-      alert('Logout failed. Please try again.');
+      this.showErrorModal('Logout Failed', 'Logout failed. Please try again.');
     }
   }
 
   showAuthStatus(message) {
-    const statusElement = document.getElementById('auth-status');
-    const statusText = document.getElementById('auth-status-text');
+    const statusElement = DOMSelectors.authStatus();
+    const statusText = DOMSelectors.authStatusText();
     
     statusText.textContent = message;
     statusElement.style.display = 'flex';
   }
 
   hideAuthStatus() {
-    const statusElement = document.getElementById('auth-status');
+    const statusElement = DOMSelectors.authStatus();
     statusElement.style.display = 'none';
   }
 
   showAuthError(message) {
     this.hideAuthStatus();
-    alert(`❌ ${message}`);
+    this.modalManager.showErrorModal('Authentication Error', message);
   }
 
-
   handleFilterClick(e) {
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    DOMSelectors.filterBtns().forEach(btn => {
       btn.classList.remove('active');
     });
     e.target.classList.add('active');
@@ -302,45 +792,66 @@ class PRShepherdSidebar {
     this.applyFilters();
   }
 
+  /**
+   * Apply current filters to PR list
+   * Handles search terms, reviewer mode, and custom tags
+   * 
+   * @returns {void}
+   */
   applyFilters() {
+    console.log(`🔍 Filtering ${this.allPRs.length} PRs. ReviewerOnly: ${this.reviewerOnlyMode}, User: ${this.currentUser?.login}`);
+    
+    let searchFiltered = 0;
+    let reviewerFiltered = 0;
+    let statusFiltered = 0;
+    
     this.filteredPRs = this.allPRs.filter(pr => {
       // Search filter
       if (this.searchTerm) {
         const searchableText = `${pr.title} ${pr.number} ${pr.author.login} ${pr.headRefName}`.toLowerCase();
         if (!this.fuzzyMatch(searchableText, this.searchTerm)) {
+          searchFiltered++;
           return false;
         }
       }
 
       // Reviewer only filter
       if (this.reviewerOnlyMode && this.currentUser) {
-        const isDirectReviewer = pr.reviewRequests.nodes.some(req => {
+        const reviewRequests = pr.reviewRequests?.nodes || [];
+        const isDirectReviewer = reviewRequests.some(req => {
           const reviewer = req.requestedReviewer;
           return reviewer?.login === this.currentUser.login;
         });
         
-        const hasTeamRequest = this.includeTeamRequests && pr.reviewRequests.nodes.some(req => {
+        const hasTeamRequest = this.includeTeamRequests && reviewRequests.some(req => {
           const reviewer = req.requestedReviewer;
           return reviewer?.slug; // This means it's a team
         });
         
-        const hasReviewed = pr.reviews.nodes.some(review => 
-          review.author.login === this.currentUser.login
+        const reviewNodes = pr.reviews?.nodes || [];
+        const hasReviewed = reviewNodes.some(review => 
+          review.author?.login === this.currentUser.login
         );
         
         if (!isDirectReviewer && !hasTeamRequest && !hasReviewed) {
+          reviewerFiltered++;
           return false;
         }
       }
 
       // Status filter
       if (this.currentFilter && this.currentFilter !== 'all') {
-        return this.shouldShowPR(pr, this.currentFilter);
+        if (!this.shouldShowPR(pr, this.currentFilter)) {
+          statusFiltered++;
+          return false;
+        }
       }
 
       return true;
     });
 
+    console.log(`📊 Filter results: ${this.filteredPRs.length} shown, ${searchFiltered} search filtered, ${reviewerFiltered} reviewer filtered, ${statusFiltered} status filtered`);
+    
     this.renderFilteredPRs();
   }
 
@@ -350,36 +861,42 @@ class PRShepherdSidebar {
   }
 
   shouldShowPR(pr, filter) {
-    const isDraft = pr.isDraft;
-    const reviewDecision = pr.reviewDecision || '';
+    // Handle system filters
+    if (filter === 'all') {
+      return true;
+    }
     
-    // Check if it's a custom tag filter
+    if (filter === 'untagged') {
+      return !pr.customTag;
+    }
+    
+    // Handle user-created tag filters
     if (this.customTags.some(tag => tag.name === filter)) {
       return pr.customTag?.name === filter;
     }
     
-    switch (filter) {
-      case 'ready':
-        return !isDraft && pr.state === 'OPEN' && reviewDecision !== 'APPROVED';
-      case 'wip':
-        return isDraft;
-      case 'finished':
-        return pr.state === 'MERGED' || pr.state === 'CLOSED' || reviewDecision === 'APPROVED';
-      case 'pinged':
-        return this.getActivityInfo(pr).includes('Recently pinged');
-      case 'author-active':
-        const activity = this.getActivityInfo(pr);
-        return activity.includes('Recent commits') || activity.includes('Author activity');
-      default:
-        return true;
-    }
+    return true;
   }
 
+  /**
+   * Load pull requests from GitHub API
+   * Implements smart caching and rate limit management
+   * 
+   * @async
+   * @param {boolean} [forceRefresh=false] - Skip cache and force fresh data
+   * @returns {Promise<void>}
+   */
   async loadPRs(forceRefresh = false) {
     if (!this.token) return;
 
-    const listElement = document.getElementById('pr-list');
-    const refreshBtn = document.getElementById('refresh-btn');
+    const listElement = DOMSelectors.prList();
+    const refreshBtn = DOMSelectors.refreshBtn();
+    
+    // Check if we should skip refresh (smart caching)
+    if (!forceRefresh && this.shouldSkipRefresh()) {
+      console.log('⏭️ Skipping refresh - data is fresh enough');
+      return;
+    }
     
     // Only show loading state if we don't have cached data or forced refresh
     const hasExistingData = this.allPRs && this.allPRs.length > 0;
@@ -390,19 +907,21 @@ class PRShepherdSidebar {
     }
 
     try {
+      console.log('🔄 Fetching fresh PR data...');
       const prs = await this.fetchPRs();
       this.renderPRs(prs);
       await this.savePRCache(prs); // Save to cache
       this.updateFooter();
       this.lastUpdate = new Date();
+      console.log('✅ Fresh data loaded');
     } catch (error) {
       console.error('Error loading PRs:', error);
-      if (error.message.includes('401') || error.message.includes('Bad credentials')) {
+      if (error.message.includes(Constants.HTTP_UNAUTHORIZED.toString()) || error.message.includes('Bad credentials')) {
         listElement.innerHTML = `
           <div class="error">
             Authentication failed. Please check your token.
             <br><br>
-            <button class="btn" onclick="document.getElementById('auth-btn').click()">
+            <button class="btn" onclick="DOMSelectors.settingsBtn().click()">
               Update Token
             </button>
           </div>
@@ -413,23 +932,29 @@ class PRShepherdSidebar {
             Token missing required scopes.
             <br><small>Need: <code>repo</code> and <code>read:org</code></small>
             <br><br>
-            <button class="btn" onclick="document.getElementById('auth-btn').click()">
+            <button class="btn" onclick="DOMSelectors.settingsBtn().click()">
               Update Token
             </button>
           </div>
         `;
-      } else if (error.message.includes('403')) {
+      } else if (error.message.includes(Constants.HTTP_FORBIDDEN.toString())) {
         listElement.innerHTML = `
           <div class="error">
             Rate limit exceeded. Please wait before refreshing.
-            <br><small>Limit resets at ${new Date(this.rateLimitInfo.resetAt || Date.now() + 3600000).toLocaleTimeString()}</small>
+            <br><small>Limit resets at ${new Date(this.rateLimitInfo.resetAt || Date.now() + Constants.ONE_HOUR_MS).toLocaleTimeString()}</small>
           </div>
         `;
-      } else if (error.message.includes('502') || error.message.includes('503') || error.message.includes('504')) {
+      } else if (error.message.includes(Constants.HTTP_BAD_GATEWAY.toString()) || 
+                 error.message.includes(Constants.HTTP_SERVICE_UNAVAILABLE.toString()) || 
+                 error.message.includes(Constants.HTTP_GATEWAY_TIMEOUT.toString())) {
         listElement.innerHTML = `
           <div class="error">
-            GitHub API temporarily unavailable. 
-            <br><small>Try again in a few minutes.</small>
+            GitHub API temporarily unavailable (${error.message.includes(Constants.HTTP_GATEWAY_TIMEOUT.toString()) ? 'timeout' : 'server error'}).
+            <br><small>GitHub is experiencing issues. This is not a problem with the extension.</small>
+            <br><br>
+            <button class="btn" onclick="DOMSelectors.refreshBtn().click()">
+              Try Again
+            </button>
           </div>
         `;
       } else {
@@ -438,6 +963,38 @@ class PRShepherdSidebar {
     } finally {
       refreshBtn.classList.remove('updating');
     }
+  }
+
+  async loadCachedDataInstantly() {
+    try {
+      // Load from local storage cache WITHOUT checking auth first
+      const cached = await new Promise((resolve) => {
+        chrome.storage.local.get(['pr_cache'], (result) => {
+          resolve(result.pr_cache);
+        });
+      });
+      
+      if (cached && cached.data && cached.data.length > 0) {
+        console.log('📦 Instant cache load:', cached.data.length, 'PRs');
+        
+        // Show main content immediately with cached data
+        const authSection = DOMSelectors.authSection();
+        const mainContent = DOMSelectors.mainContent();
+        authSection.style.display = 'none';
+        mainContent.style.display = 'flex';
+        
+        this.renderPRs(cached.data);
+        this.lastUpdate = new Date(cached.lastUpdate);
+        this.updateFooter();
+        
+        // Add visual indicator that this is cached data
+        this.showCacheIndicator();
+        return true;
+      }
+    } catch (error) {
+      console.log('No cached data available:', error);
+    }
+    return false;
   }
 
   async loadCachedData() {
@@ -493,25 +1050,37 @@ class PRShepherdSidebar {
     }
   }
 
+  /**
+   * Fetch pull requests using GitHub Search API
+   * Uses dual queries for review-requested and recent PRs
+   * 
+   * @async
+   * @returns {Promise<Array>} Array of PR objects
+   */
   async fetchPRs() {
+    // Use GitHub Search API to let GitHub do the filtering!
+    const searchQueries = [
+      // PRs where I'm requested as reviewer
+      `repo:${this.repo.owner}/${this.repo.name} is:pr is:open review-requested:@me`,
+      // Recent PRs for context (in case user wants to see all)
+      `repo:${this.repo.owner}/${this.repo.name} is:pr is:open sort:updated-desc`
+    ];
+
     const query = `
-      query GetVLLMPRs($owner: String!, $name: String!) {
-        repository(owner: $owner, name: $name) {
-          pullRequests(first: 100, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
-            nodes {
+      query SearchVLLMPRs($reviewQuery: String!, $recentQuery: String!) {
+        reviewRequested: search(query: $reviewQuery, type: ISSUE, first: ${Constants.MAX_REVIEW_REQUESTED_PRS}) {
+          nodes {
+            ... on PullRequest {
               id
               number
               title
               state
               isDraft
-              mergeable
-              createdAt
               updatedAt
               author {
                 login
               }
-              headRefName
-              reviewRequests(first: 10) {
+              reviewRequests(first: 3) {
                 nodes {
                   requestedReviewer {
                     ... on User {
@@ -519,7 +1088,6 @@ class PRShepherdSidebar {
                     }
                     ... on Team {
                       slug
-                      name
                     }
                   }
                 }
@@ -527,78 +1095,63 @@ class PRShepherdSidebar {
               commits(last: 1) {
                 nodes {
                   commit {
-                    author {
-                      date
-                    }
                     statusCheckRollup {
                       state
-                      contexts(first: 20) {
-                        nodes {
-                          __typename
-                          ... on CheckRun {
-                            name
-                            conclusion
-                            status
-                            detailsUrl
-                            completedAt
-                            checkSuite {
-                              app {
-                                name
-                              }
-                            }
-                          }
-                          ... on StatusContext {
-                            context
-                            state
-                            targetUrl
-                            description
-                            creator {
-                              login
-                            }
-                          }
-                        }
-                      }
                     }
                   }
                 }
               }
               reviewDecision
-              reviews(first: 10, states: [APPROVED, CHANGES_REQUESTED, COMMENTED]) {
+              reviews {
                 totalCount
+              }
+              labels(first: 2) {
                 nodes {
-                  state
-                  author {
-                    login
-                  }
-                  createdAt
+                  name
+                  color
                 }
               }
-              timelineItems(last: 10, itemTypes: [
-                REVIEW_REQUESTED_EVENT,
-                READY_FOR_REVIEW_EVENT
-              ]) {
+            }
+          }
+        }
+        recentPRs: search(query: $recentQuery, type: ISSUE, first: ${Constants.MAX_RECENT_PRS}) {
+          nodes {
+            ... on PullRequest {
+              id
+              number
+              title
+              state
+              isDraft
+              updatedAt
+              author {
+                login
+              }
+              reviewRequests(first: 3) {
                 nodes {
-                  __typename
-                  ... on ReviewRequestedEvent {
-                    createdAt
-                    actor {
+                  requestedReviewer {
+                    ... on User {
                       login
                     }
-                    requestedReviewer {
-                      ... on User {
-                        login
-                      }
-                    }
-                  }
-                  ... on ReadyForReviewEvent {
-                    createdAt
-                    actor {
-                      login
+                    ... on Team {
+                      slug
                     }
                   }
                 }
               }
-              labels(first: 5) {
+              commits(last: 1) {
+                nodes {
+                  commit {
+                    statusCheckRollup {
+                      state
+                    }
+                  }
+                }
+              }
+              reviewDecision
+              reviews {
+                totalCount
+              }
+              labels(first: 2) {
                 nodes {
                   name
                   color
@@ -611,7 +1164,6 @@ class PRShepherdSidebar {
           login
         }
         rateLimit {
-          limit
           remaining
           resetAt
         }
@@ -622,13 +1174,13 @@ class PRShepherdSidebar {
       method: 'POST',
       headers: {
         'Authorization': `bearer ${this.token}`,
-        'Content-Type': 'application/json',
+        'Content-Type': Constants.JSON_CONTENT_TYPE,
       },
       body: JSON.stringify({
         query,
         variables: {
-          owner: this.repo.owner,
-          name: this.repo.name
+          reviewQuery: `repo:${this.repo.owner}/${this.repo.name} is:pr is:open review-requested:@me`,
+          recentQuery: `repo:${this.repo.owner}/${this.repo.name} is:pr is:open sort:updated-desc`
         }
       })
     });
@@ -654,7 +1206,28 @@ class PRShepherdSidebar {
     this.rateLimitInfo = data.data.rateLimit;
     this.currentUser = data.data.viewer;
     
-    return data.data.repository.pullRequests.nodes;
+    // Merge results from both search queries
+    const reviewRequestedPRs = data.data.reviewRequested?.nodes || [];
+    const recentPRs = data.data.recentPRs?.nodes || [];
+    
+    // Deduplicate by PR number, prioritizing review-requested PRs
+    const prMap = new Map();
+    
+    // Add review-requested PRs first (higher priority)
+    reviewRequestedPRs.forEach(pr => {
+      if (pr && pr.number) {
+        prMap.set(pr.number, pr);
+      }
+    });
+    
+    // Add recent PRs if not already present
+    recentPRs.forEach(pr => {
+      if (pr && pr.number && !prMap.has(pr.number)) {
+        prMap.set(pr.number, pr);
+      }
+    });
+    
+    return Array.from(prMap.values());
   }
 
   renderPRs(prs) {
@@ -669,11 +1242,10 @@ class PRShepherdSidebar {
     this.currentFilter = 'all';
     this.applyFilters();
     this.renderCustomTagFilters();
-    this.renderTagAssignments();
   }
 
   renderFilteredPRs() {
-    const listElement = document.getElementById('pr-list');
+    const listElement = DOMSelectors.prList();
     
     if (this.filteredPRs.length === 0) {
       if (this.reviewerOnlyMode && this.allPRs.length > this.filteredPRs.length) {
@@ -689,17 +1261,22 @@ class PRShepherdSidebar {
     const prHTML = this.filteredPRs.map(pr => this.renderPR(pr)).join('');
     listElement.innerHTML = prHTML;
     
-    // Add drag and drop functionality
-    this.setupDragAndDrop();
+    // Add quick tag functionality
+    this.setupQuickTagging();
   }
 
+  /**
+   * Render HTML for a single PR item
+   * 
+   * @param {Object} pr - Pull request object from GitHub API
+   * @returns {string} HTML string for the PR item
+   */
   renderPR(pr) {
-    const statusIcon = this.getStatusIcon(pr);
     const reviewStatus = this.getReviewStatus(pr);
     const detailedCIStatus = this.getDetailedCIDisplay(pr);
-    const labels = this.renderLabels(pr.labels.nodes);
+    const labels = this.renderLabels(pr.labels?.nodes);
     const activityInfo = this.getActivityInfo(pr);
-    const assignedTag = pr.customTag ? `<span class="custom-tag" style="background-color: ${pr.customTag.color}">${pr.customTag.name}</span>` : '';
+    const assignedTag = pr.customTag ? `<span class="custom-tag" style="background-color: ${pr.customTag.color}">📁 ${pr.customTag.name}</span>` : '';
     
     return `
       <div class="pr-item" 
@@ -707,8 +1284,7 @@ class PRShepherdSidebar {
            data-status="${pr.state}" 
            data-draft="${pr.isDraft}"
            data-review-decision="${pr.reviewDecision || ''}"
-           data-custom-tag="${pr.customTag?.name || ''}"
-           draggable="true">
+           data-custom-tag="${pr.customTag?.name || ''}">
         <div class="pr-header">
           <div class="pr-title">
             <a href="https://github.com/${this.repo.owner}/${this.repo.name}/pull/${pr.number}" 
@@ -718,13 +1294,18 @@ class PRShepherdSidebar {
             ${pr.isDraft ? '<span class="draft-badge">DRAFT</span>' : ''}
             ${assignedTag}
           </div>
-          <div class="pr-meta">
-            by ${pr.author.login} • ${this.formatDate(pr.updatedAt)}
+          <div class="pr-actions">
+            <button class="quick-tag-btn" data-pr-number="${pr.number}" title="Organize with tags">
+              📁
+            </button>
           </div>
+        </div>
+        <div class="pr-meta">
+          by ${pr.author.login} • ${this.formatDate(pr.updatedAt)}
         </div>
         <div class="pr-status">
           <div class="status-item ci-status-container">
-            ${statusIcon} ${detailedCIStatus}
+            ${detailedCIStatus}
           </div>
           <div class="status-item">
             ${reviewStatus}
@@ -741,112 +1322,35 @@ class PRShepherdSidebar {
     
     const ciState = pr.commits.nodes[0]?.commit?.statusCheckRollup?.state;
     switch (ciState) {
-      case 'SUCCESS': return '✅';
-      case 'FAILURE': case 'ERROR': return '❌';
-      case 'PENDING': return '🟡';
-      default: return '⚪';
+      case 'SUCCESS': return Constants.CI_ICONS.SUCCESS;
+      case 'FAILURE': case 'ERROR': return Constants.CI_ICONS.FAILURE;
+      case 'PENDING': return Constants.CI_ICONS.PENDING;
+      default: return Constants.CI_ICONS.NEUTRAL;
     }
   }
 
   getCIStatus(pr) {
     const rollup = pr.commits.nodes[0]?.commit?.statusCheckRollup;
-    if (!rollup) return { state: 'unknown', details: [] };
+    if (!rollup) return { state: 'unknown' };
     
     const state = rollup.state ? rollup.state.toLowerCase().replace('_', ' ') : 'unknown';
-    const contexts = rollup.contexts?.nodes || [];
-    
-    // Process detailed check information
-    const details = contexts.map(context => {
-      if (context.__typename === 'CheckRun') {
-        return {
-          type: 'check_run',
-          name: context.name,
-          status: context.status?.toLowerCase() || 'unknown',
-          conclusion: context.conclusion?.toLowerCase() || null,
-          app: context.checkSuite?.app?.name || 'GitHub',
-          url: context.detailsUrl,
-          completedAt: context.completedAt
-        };
-      } else if (context.__typename === 'StatusContext') {
-        return {
-          type: 'status',
-          name: context.context,
-          state: context.state?.toLowerCase() || 'unknown',
-          description: context.description,
-          creator: context.creator?.login || 'Unknown',
-          url: context.targetUrl
-        };
-      }
-      return null;
-    }).filter(Boolean);
-    
-    return { state, details };
+    return { state };
   }
 
   getDetailedCIDisplay(pr) {
-    const { state, details } = this.getCIStatus(pr);
-    
-    if (!details.length) {
-      return `<span class="ci-state ci-${state}">${this.getCIIcon(state)} ${state}</span>`;
-    }
-    
-    // Group checks by status/conclusion
-    const grouped = details.reduce((acc, check) => {
-      const status = check.conclusion || check.state || check.status;
-      if (!acc[status]) acc[status] = [];
-      acc[status].push(check);
-      return acc;
-    }, {});
-    
-    // Create summary display
-    const summaryParts = Object.entries(grouped).map(([status, checks]) => {
-      const icon = this.getCIIcon(status);
-      const count = checks.length;
-      return `${icon} ${count}`;
-    });
-    
-    const detailsHtml = details.map(check => {
-      const status = check.conclusion || check.state || check.status;
-      const icon = this.getCIIcon(status);
-      const url = check.url ? `href="${check.url}" target="_blank"` : '';
-      const title = check.description || `${check.name} - ${status}`;
-      
-      return `<div class="ci-check" title="${title}">
-        <a ${url} class="ci-check-link">
-          ${icon} <span class="ci-check-name">${check.name}</span>
-          <span class="ci-check-status">${status}</span>
-        </a>
-      </div>`;
-    }).join('');
-    
-    return `
-      <div class="ci-status-detailed">
-        <div class="ci-summary" title="Click to expand details">
-          <span class="ci-state ci-${state}">${this.getCIIcon(state)} ${summaryParts.join(' ')}</span>
-        </div>
-        <div class="ci-details" style="display: none;">
-          ${detailsHtml}
-        </div>
-      </div>
-    `;
+    const { state } = this.getCIStatus(pr);
+    return `<span class="ci-state ci-${state}">${this.getCIIcon(state)} ${state}</span>`;
   }
   
+  /**
+   * Get emoji icon for CI status state
+   * 
+   * @param {string} state - CI state (success, failure, pending, etc.)
+   * @returns {string} Emoji icon for the state
+   */
   getCIIcon(state) {
-    switch (state) {
-      case 'success': return '✅';
-      case 'failure': return '❌';
-      case 'error': return '🚫';
-      case 'pending': return '🟡';
-      case 'in_progress': return '🔄';
-      case 'queued': return '⏳';
-      case 'completed': return '✅';
-      case 'cancelled': return '⚪';
-      case 'skipped': return '⏭️';
-      case 'neutral': return '⚪';
-      case 'timed_out': return '⏰';
-      case 'action_required': return '⚠️';
-      default: return '❓';
-    }
+    const stateUpper = state.toUpperCase();
+    return Constants.CI_ICONS[stateUpper] || Constants.CI_ICONS.UNKNOWN;
   }
 
   getReviewStatus(pr) {
@@ -854,18 +1358,19 @@ class PRShepherdSidebar {
     if (pr.reviewDecision === 'CHANGES_REQUESTED') return '👎 Changes requested';
     
     // Check if user is directly requested for review
-    const isDirectReviewer = pr.reviewRequests.nodes.some(req => {
+    const reviewRequests = pr.reviewRequests?.nodes || [];
+    const isDirectReviewer = reviewRequests.some(req => {
       const reviewer = req.requestedReviewer;
       return reviewer?.login === this.currentUser?.login;
     });
     
     // Check for team requests
-    const teamRequests = pr.reviewRequests.nodes.filter(req => req.requestedReviewer?.slug);
+    const teamRequests = reviewRequests.filter(req => req.requestedReviewer?.slug);
     
     if (isDirectReviewer) return '👤 You requested';
     if (teamRequests.length > 0) return `👥 Team review (${teamRequests.length})`;
     
-    const reviewCount = pr.reviews.totalCount;
+    const reviewCount = pr.reviews?.totalCount || 0;
     if (reviewCount === 0) return '⏳ No reviews';
     
     return `💬 ${reviewCount} review${reviewCount > 1 ? 's' : ''}`;
@@ -874,94 +1379,77 @@ class PRShepherdSidebar {
   getActivityInfo(pr) {
     if (!this.currentUser) return '';
     
-    const now = Date.now();
-    const oneDayAgo = now - (24 * 60 * 60 * 1000);
-    const threeDaysAgo = now - (3 * 24 * 60 * 60 * 1000);
-    
     const activities = [];
     
-    // Check for recent pings (review requests targeting me)
-    const recentPings = pr.timelineItems?.nodes?.filter(item => {
-      if (item.__typename === 'ReviewRequestedEvent') {
-        const createdAt = new Date(item.createdAt).getTime();
-        const targetedMe = item.requestedReviewer?.login === this.currentUser.login;
-        return targetedMe && createdAt > oneDayAgo;
-      }
-      return false;
-    }) || [];
+    // Check if user is requested for review
+    const reviewRequests = pr.reviewRequests?.nodes || [];
+    const isDirectReviewer = reviewRequests.some(req => {
+      const reviewer = req.requestedReviewer;
+      return reviewer?.login === this.currentUser.login;
+    });
     
-    if (recentPings.length > 0) {
-      activities.push('🔔 Recently pinged');
+    if (isDirectReviewer) {
+      activities.push('🔔 Review requested');
     }
     
-    // Check for recent author activity (simplified)
-    const authorLogin = pr.author.login;
+    // Check for recent updates (within 1 day)
+    const now = Date.now();
+    const oneDayAgo = now - Constants.ONE_DAY_MS;
+    const updatedAt = new Date(pr.updatedAt).getTime();
     
-    // Check if there's a recent commit (last commit within 3 days)
-    const lastCommit = pr.commits?.nodes?.[0];
-    if (lastCommit) {
-      const commitDate = new Date(lastCommit.commit.author.date).getTime();
-      if (commitDate > threeDaysAgo) {
-        activities.push('💻 Recent commits');
-      }
-    }
-    
-    // Check for recent reviews by author
-    const recentAuthorReviews = pr.reviews?.nodes?.filter(review => {
-      const createdAt = new Date(review.createdAt).getTime();
-      const byAuthor = review.author?.login === authorLogin;
-      return byAuthor && createdAt > threeDaysAgo;
-    }) || [];
-    
-    if (recentAuthorReviews.length > 0) {
-      activities.push('💬 Author activity');
-    }
-    
-    // Check if ready for review recently
-    const recentReadyForReview = pr.timelineItems?.nodes?.filter(item => {
-      if (item.__typename === 'ReadyForReviewEvent') {
-        const createdAt = new Date(item.createdAt).getTime();
-        return createdAt > oneDayAgo;
-      }
-      return false;
-    }) || [];
-    
-    if (recentReadyForReview.length > 0) {
-      activities.push('✅ Ready for review');
+    if (updatedAt > oneDayAgo) {
+      activities.push('🔄 Recently updated');
     }
     
     return activities.length > 0 ? activities.join(' • ') : '';
   }
 
   renderLabels(labels) {
-    if (!labels.length) return '';
+    if (!labels || !labels.length) return '';
     
     return labels.map(label => 
       `<span class="label" style="background-color: #${label.color}">${label.name}</span>`
     ).join('');
   }
 
+  /**
+   * Format a date string into relative time (e.g., "2h ago", "3d ago")
+   * 
+   * @param {string} dateString - ISO date string
+   * @returns {string} Formatted relative time string
+   */
   formatDate(dateString) {
     const date = new Date(dateString);
     const now = new Date();
     const diffMs = now - date;
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffMinutes = Math.floor(diffMs / Constants.ONE_MINUTE_MS);
     
-    if (diffMinutes < 1) return 'just now';
-    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    if (diffMinutes < Constants.TIME_THRESHOLDS.JUST_NOW) return 'just now';
+    if (diffMinutes < Constants.TIME_THRESHOLDS.MINUTES) return `${diffMinutes}m ago`;
     
-    const diffHours = Math.floor(diffMinutes / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffHours = Math.floor(diffMinutes / Constants.TIME_THRESHOLDS.MINUTES);
+    if (diffHours < Constants.TIME_THRESHOLDS.HOURS) return `${diffHours}h ago`;
     
-    const diffDays = Math.floor(diffHours / 24);
+    const diffDays = Math.floor(diffHours / Constants.TIME_THRESHOLDS.HOURS);
     if (diffDays < 7) return `${diffDays}d ago`;
     
     return date.toLocaleDateString();
   }
 
+  showCacheIndicator() {
+    const lastUpdateElement = DOMSelectors.lastUpdate();
+    lastUpdateElement.style.color = '#bf8700';
+    lastUpdateElement.textContent = '📦 Showing cached data, refreshing...';
+  }
+
+  hideCacheIndicator() {
+    const lastUpdateElement = DOMSelectors.lastUpdate();
+    lastUpdateElement.style.color = '';
+  }
+
   updateFooter() {
-    const rateLimitElement = document.getElementById('rate-limit-info');
-    const lastUpdateElement = document.getElementById('last-update');
+    const rateLimitElement = DOMSelectors.rateLimitInfo();
+    const lastUpdateElement = DOMSelectors.lastUpdate();
     
     if (this.rateLimitInfo) {
       const resetTime = new Date(this.rateLimitInfo.resetAt).toLocaleTimeString();
@@ -971,22 +1459,40 @@ class PRShepherdSidebar {
     if (this.lastUpdate) {
       const timeAgo = this.getTimeAgo(this.lastUpdate);
       lastUpdateElement.textContent = `Updated: ${timeAgo}`;
+      this.hideCacheIndicator();
     }
+  }
+
+  shouldSkipRefresh() {
+    // Skip refresh if data is less than 2 minutes old
+    if (!this.lastUpdate) return false;
+    
+    const now = Date.now();
+    const freshnessThreshold = now - Constants.CACHE_FRESHNESS_THRESHOLD;
+    const lastUpdateTime = this.lastUpdate.getTime();
+    
+    return lastUpdateTime > freshnessThreshold;
   }
 
   getTimeAgo(date) {
     const now = new Date();
     const diffMs = now - date;
-    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffMinutes = Math.floor(diffMs / Constants.ONE_MINUTE_MS);
     
-    if (diffMinutes < 1) return 'just now';
+    if (diffMinutes < Constants.TIME_THRESHOLDS.JUST_NOW) return 'just now';
     if (diffMinutes === 1) return '1 minute ago';
-    if (diffMinutes < 60) return `${diffMinutes} minutes ago`;
+    if (diffMinutes < Constants.TIME_THRESHOLDS.MINUTES) return `${diffMinutes} minutes ago`;
     
     return date.toLocaleTimeString();
   }
 
   // Custom Tags Functionality
+  /**
+   * Load custom tags and PR assignments from storage
+   * 
+   * @async
+   * @returns {Promise<void>}
+   */
   async loadCustomTags() {
     return new Promise((resolve) => {
       chrome.storage.local.get(['custom_tags', 'pr_tag_assignments'], (result) => {
@@ -1009,25 +1515,55 @@ class PRShepherdSidebar {
   }
 
   createCustomTag() {
-    const name = prompt('Enter tag name:');
+    const suggestions = ['Backlog', 'P0 Priority', 'Customer', 'Review Later', 'Blocked', 'Ready to Merge'];
+    
+    this.modalManager.showPrompt(
+      'Create New Tag',
+      'Create a new tag to organize your PRs:',
+      '',
+      'createTag',
+      suggestions
+    );
+  }
+
+  createTagWithValue(name) {
     if (name && name.trim()) {
-      const color = prompt('Enter tag color (hex, e.g. #ff6b6b):', '#0969da');
-      if (color) {
-        const tag = {
-          id: Date.now().toString(),
-          name: name.trim(),
-          color: color.trim()
-        };
-        this.customTags.push(tag);
+      const color = this.getRandomTagColor();
+      const tag = {
+        id: Date.now().toString(),
+        name: name.trim(),
+        color: color
+      };
+      this.customTags.push(tag);
+      this.saveCustomTags();
+      this.renderCustomTagFilters();
+    }
+  }
+
+  createFirstTagWithValue(name) {
+    if (name && name.trim()) {
+      const color = this.getRandomTagColor();
+      const tag = {
+        id: Date.now().toString(),
+        name: name.trim(),
+        color: color
+      };
+      this.customTags.push(tag);
+      this.saveCustomTags();
+      this.renderCustomTagFilters();
+      
+      // Assign the new tag to the pending PR
+      if (this.pendingTagPRNumber) {
+        this.prTagAssignments.set(this.pendingTagPRNumber, tag.name);
         this.saveCustomTags();
-        this.renderCustomTagFilters();
-        this.renderTagAssignments();
+        this.renderPRs(this.allPRs);
+        this.pendingTagPRNumber = null;
       }
     }
   }
 
   renderCustomTagFilters() {
-    const container = document.getElementById('custom-tag-filters');
+    const container = DOMSelectors.userTagFilters();
     
     if (this.customTags.length === 0) {
       container.innerHTML = '';
@@ -1036,7 +1572,7 @@ class PRShepherdSidebar {
 
     const filtersHTML = this.customTags.map(tag => 
       `<button class="filter-btn" data-filter="${tag.name}" style="border-color: ${tag.color}; color: ${tag.color};">
-        ${tag.name}
+        📁 ${tag.name}
       </button>`
     ).join('');
     
@@ -1050,88 +1586,157 @@ class PRShepherdSidebar {
     });
   }
 
-  renderTagAssignments() {
-    const container = document.getElementById('tag-assignments');
-    
-    if (this.customTags.length === 0) {
-      container.innerHTML = '<p class="tag-help">Create custom tags to organize your PRs</p>';
-      return;
-    }
 
-    const assignedPRs = Array.from(this.prTagAssignments.entries()).map(([prNumber, tagName]) => {
-      const pr = this.allPRs.find(p => p.number === prNumber);
-      const tag = this.customTags.find(t => t.name === tagName);
-      if (pr && tag) {
-        return `
-          <div class="assigned-pr-item" style="border-left-color: ${tag.color};">
-            <span class="custom-tag" style="background-color: ${tag.color};">${tag.name}</span>
-            #${pr.number} ${pr.title.substring(0, 25)}${pr.title.length > 25 ? '...' : ''}
-            <button class="remove-tag-btn" onclick="prShepherd.removePRTag(${pr.number})">×</button>
-          </div>
-        `;
-      }
-      return '';
-    }).filter(html => html).join('');
-
-    container.innerHTML = assignedPRs || '<p class="tag-help">Drag PRs here to assign custom tags</p>';
-    this.setupTagDropZone();
+  setupQuickTagging() {
+    DOMSelectors.quickTagBtns().forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const prNumber = parseInt(btn.dataset.prNumber);
+        this.showQuickTagMenu(btn, prNumber);
+      });
+    });
   }
 
-  setupTagDropZone() {
-    const dropZone = document.getElementById('tag-assignments');
+  /**
+   * Display quick tag assignment menu for a PR
+   * 
+   * @param {HTMLElement} button - Button element that triggered the menu
+   * @param {number} prNumber - PR number to assign tag to
+   * @returns {void}
+   */
+  showQuickTagMenu(button, prNumber) {
+    // Remove any existing menus
+    DOMSelectors.tagSelectors().forEach(menu => menu.remove());
     
-    dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('drag-over');
-    });
-
-    dropZone.addEventListener('dragleave', (e) => {
-      if (!dropZone.contains(e.relatedTarget)) {
-        dropZone.classList.remove('drag-over');
-      }
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
+    if (this.customTags.length === 0) {
+      // If no tags exist, prompt to create one
+      this.pendingTagPRNumber = prNumber; // Store for after tag creation
+      const suggestions = ['Backlog', 'P0 Priority', 'Customer', 'Review Later', 'Blocked'];
       
-      const prNumber = parseInt(e.dataTransfer.getData('text/plain'));
-      this.assignTagToPR(prNumber);
-    });
-  }
-
-  setupDragAndDrop() {
-    document.querySelectorAll('.pr-item[draggable="true"]').forEach(prItem => {
-      prItem.addEventListener('dragstart', (e) => {
-        const prNumber = parseInt(prItem.dataset.prNumber);
-        e.dataTransfer.setData('text/plain', prNumber.toString());
-        prItem.classList.add('dragging');
-      });
-
-      prItem.addEventListener('dragend', (e) => {
-        prItem.classList.remove('dragging');
-      });
-    });
-  }
-
-  assignTagToPR(prNumber) {
-    if (this.customTags.length === 0) {
-      alert('Please create custom tags first');
+      this.modalManager.showPrompt(
+        'Create Your First Tag',
+        'Create your first tag to organize PRs:',
+        '',
+        'createFirstTag',
+        suggestions
+      );
       return;
     }
 
-    const tagOptions = this.customTags.map((tag, index) => `${index + 1}. ${tag.name}`).join('\n');
-    const choice = prompt(`Select a tag for PR #${prNumber}:\n\n${tagOptions}\n\nEnter number:`);
+    // Create dropdown menu
+    const menu = document.createElement('div');
+    menu.className = 'tag-selector';
     
-    if (choice) {
-      const tagIndex = parseInt(choice) - 1;
-      if (tagIndex >= 0 && tagIndex < this.customTags.length) {
-        const selectedTag = this.customTags[tagIndex];
-        this.prTagAssignments.set(prNumber, selectedTag.name);
+    // Add "Remove tag" option if PR has a tag
+    const currentPR = this.allPRs.find(pr => pr.number === prNumber);
+    if (currentPR?.customTag) {
+      const removeOption = document.createElement('div');
+      removeOption.style.cssText = 'padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f6f8fa; color: #d1242f;';
+      removeOption.textContent = '✖️ Remove tag';
+      removeOption.addEventListener('click', () => {
+        this.prTagAssignments.delete(prNumber);
         this.saveCustomTags();
-        this.renderPRs(this.allPRs); // Re-render to show the tag
+        this.renderPRs(this.allPRs);
+        menu.remove();
+      });
+      menu.appendChild(removeOption);
+    }
+    
+    // Add tag options
+    this.customTags.forEach(tag => {
+      const option = document.createElement('div');
+      option.style.cssText = `
+        padding: 8px 12px; 
+        cursor: pointer; 
+        display: flex; 
+        align-items: center; 
+        gap: 6px;
+        border-bottom: 1px solid #f6f8fa;
+      `;
+      option.innerHTML = `
+        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${tag.color};"></span>
+        📁 ${tag.name}
+      `;
+      option.addEventListener('click', () => {
+        this.prTagAssignments.set(prNumber, tag.name);
+        this.saveCustomTags();
+        this.renderPRs(this.allPRs);
+        menu.remove();
+      });
+      option.addEventListener('mouseover', () => {
+        option.style.backgroundColor = '#f6f8fa';
+      });
+      option.addEventListener('mouseout', () => {
+        option.style.backgroundColor = '';
+      });
+      menu.appendChild(option);
+    });
+    
+    // Position and show menu with boundary detection
+    const rect = button.getBoundingClientRect();
+    const menuWidth = Constants.TAG_MENU_WIDTH;
+    const sidebarRect = DOMSelectors.sidebarContainer()?.getBoundingClientRect() || 
+                       { left: 0, right: window.innerWidth };
+    
+    // Calculate optimal position
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    
+    // Adjust horizontal position if menu would overflow sidebar
+    const availableRight = sidebarRect.right - left;
+    if (availableRight < menuWidth) {
+      // Not enough space on the right, try aligning to button's right edge
+      left = rect.right - menuWidth;
+      
+      // If still not enough space, align to sidebar right edge with margin
+      if (left < sidebarRect.left) {
+        left = Math.max(sidebarRect.left + 8, sidebarRect.right - menuWidth - 8);
       }
     }
+    
+    // Ensure menu stays within sidebar bounds
+    left = Math.max(sidebarRect.left + 4, Math.min(left, sidebarRect.right - menuWidth - 4));
+    
+    // Adjust vertical position if near bottom of viewport
+    const menuHeight = Math.min((this.customTags.length + 1) * Constants.TAG_ITEM_HEIGHT + Constants.UI_MARGIN, Constants.TAG_MENU_MAX_HEIGHT);
+    if (top + menuHeight > window.innerHeight - Constants.UI_MARGIN) {
+      top = rect.top - menuHeight - 4; // Show above button
+      
+      // If still not enough space above, position at top of viewport
+      if (top < Constants.UI_MARGIN) {
+        top = Constants.UI_MARGIN;
+      }
+    }
+    
+    menu.style.cssText += `
+      position: fixed;
+      top: ${top}px;
+      left: ${left}px;
+      z-index: 1000;
+      max-width: ${menuWidth}px;
+      min-width: ${Constants.TAG_MENU_MIN_WIDTH}px;
+    `;
+    
+    document.body.appendChild(menu);
+    
+    // Close menu when clicking outside
+    const closeMenu = (e) => {
+      if (!menu.contains(e.target) && e.target !== button) {
+        menu.remove();
+        document.removeEventListener('click', closeMenu);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+  }
+
+  /**
+   * Get a random color from the predefined tag color palette
+   * 
+   * @returns {string} Hex color code
+   */
+  getRandomTagColor() {
+    return Constants.TAG_COLORS[Math.floor(Math.random() * Constants.TAG_COLORS.length)];
   }
 
   removePRTag(prNumber) {
@@ -1141,45 +1746,56 @@ class PRShepherdSidebar {
   }
 
   manageCustomTags() {
-    if (this.customTags.length === 0) {
-      alert('No custom tags created yet. Click the + button to create one.');
-      return;
-    }
+    this.modalManager.showTagManagement();
+  }
 
-    const tagList = this.customTags.map((tag, index) => 
-      `${index + 1}. ${tag.name} (${tag.color})`
-    ).join('\n');
+  deleteTag(tagIndex) {
+    if (tagIndex >= 0 && tagIndex < this.customTags.length) {
+      const tagToDelete = this.customTags[tagIndex];
+      
+      this.modalManager.showConfirm(
+        'Delete Tag',
+        `Delete tag "${tagToDelete.name}"? This will remove it from all assigned PRs.`,
+        `confirmDeleteTag.bind(prShepherd, ${tagIndex})`
+      );
+    }
+  }
+
+  confirmDeleteTag(tagIndex) {
+    const tagToDelete = this.customTags[tagIndex];
     
-    const action = prompt(`Custom Tags:\n\n${tagList}\n\nEnter tag number to delete, or 'cancel':`);
-    
-    if (action && action !== 'cancel') {
-      const tagIndex = parseInt(action) - 1;
-      if (tagIndex >= 0 && tagIndex < this.customTags.length) {
-        const tagToDelete = this.customTags[tagIndex];
-        if (confirm(`Delete tag "${tagToDelete.name}"? This will remove it from all assigned PRs.`)) {
-          // Remove tag assignments
-          for (const [prNumber, tagName] of this.prTagAssignments.entries()) {
-            if (tagName === tagToDelete.name) {
-              this.prTagAssignments.delete(prNumber);
-            }
-          }
-          
-          // Remove tag
-          this.customTags.splice(tagIndex, 1);
-          this.saveCustomTags();
-          this.renderCustomTagFilters();
-          this.renderTagAssignments();
-          this.renderPRs(this.allPRs);
-        }
+    // Remove tag assignments
+    for (const [prNumber, tagName] of this.prTagAssignments.entries()) {
+      if (tagName === tagToDelete.name) {
+        this.prTagAssignments.delete(prNumber);
       }
     }
+    
+    // Remove tag
+    this.customTags.splice(tagIndex, 1);
+    this.saveCustomTags();
+    this.renderCustomTagFilters();
+    this.renderPRs(this.allPRs);
+    
+    // Show success and return to manage view
+    setTimeout(() => {
+      if (this.customTags.length > 0) {
+        this.manageCustomTags();
+      }
+    }, 100);
   }
 }
 
-// Global reference for onclick handlers
+/**
+ * Global reference for onclick handlers in HTML
+ * @type {PRShepherdSidebar|null}
+ */
 let prShepherd;
 
-// Initialize when DOM is loaded
+/**
+ * Initialize the application when DOM is loaded
+ * Creates global PRShepherdSidebar instance
+ */
 document.addEventListener('DOMContentLoaded', () => {
   prShepherd = new PRShepherdSidebar();
 });

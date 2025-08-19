@@ -75,7 +75,7 @@ class ShepherdBackground {
         return;
       }
 
-      // Fetch latest PR data
+      // Fetch latest PR data with proper error handling
       const prs = await this.fetchPRs(token);
       
       // Store in cache with timestamp
@@ -86,12 +86,17 @@ class ShepherdBackground {
         }
       });
 
-      // Check for notifications
-      await this.checkForNotifications(prs);
+      // Notifications disabled until we add proper permissions
+      // await this.checkForNotifications(prs);
       
       console.log(`Background: Updated ${prs.length} PRs`);
     } catch (error) {
-      console.error('Background: Error updating PR data:', error);
+      console.error('Background: Error updating PR data:', error.message);
+      
+      // Don't spam errors - only log specific types
+      if (error.message.includes('timeout') || error.message.includes('504') || error.message.includes('502')) {
+        console.log('Background: GitHub API is experiencing issues, will retry later');
+      }
     }
   }
 
@@ -99,7 +104,7 @@ class ShepherdBackground {
     const query = `
       query GetVLLMPRs($owner: String!, $name: String!) {
         repository(owner: $owner, name: $name) {
-          pullRequests(first: 100, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+          pullRequests(first: 50, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
               id
               number
@@ -115,23 +120,6 @@ class ShepherdBackground {
                   commit {
                     statusCheckRollup {
                       state
-                      contexts(first: 20) {
-                        nodes {
-                          __typename
-                          ... on CheckRun {
-                            name
-                            conclusion
-                            status
-                            detailsUrl
-                          }
-                          ... on StatusContext {
-                            context
-                            state
-                            targetUrl
-                            description
-                          }
-                        }
-                      }
                     }
                   }
                 }
@@ -176,12 +164,12 @@ class ShepherdBackground {
     const result = await chrome.storage.local.get(['pr_cache', 'notification_settings']);
     const previousCache = result.pr_cache;
     const notificationSettings = result.notification_settings || {
-      statusChanges: true,
-      newReviews: true,
-      ciFailures: true
+      statusChanges: false,  // Disabled by default until we add notifications permission
+      newReviews: false,
+      ciFailures: false
     };
 
-    if (!previousCache || !notificationSettings.statusChanges) {
+    if (!previousCache || !previousCache.data || !notificationSettings.statusChanges) {
       return;
     }
 
@@ -230,12 +218,17 @@ class ShepherdBackground {
   }
 
   showNotification(title, message) {
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: 'icons/icon48.png',
-      title: title,
-      message: message
-    });
+    // Check if notifications permission is available
+    if (chrome.notifications) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: title,
+        message: message
+      });
+    } else {
+      console.log('Notification:', title, '-', message);
+    }
   }
 
   async handleMessage(request, sender, sendResponse) {

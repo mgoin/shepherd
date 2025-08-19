@@ -1,6 +1,6 @@
 # 🐑 PR Shepherd Development Roadmap
 
-## 📍 Current State (v0.1.0)
+## 📍 Current State (v0.2.0)
 
 ### ✅ **Completed Features**
 - **Chrome Extension Foundation** - Manifest V3 with sidebar interface
@@ -9,103 +9,56 @@
 - **Smart Caching** - Instant loading with background refresh
 - **Reviewer Filtering** - Focus on PRs requiring your attention
 - **Error Handling** - Comprehensive auth and API error management
+- **🆕 OAuth Device Flow** - Seamless GitHub authentication with automatic token management
+- **🆕 Enhanced CI Status** - Detailed check information using both Status + Checks APIs
+- **🆕 Comprehensive Testing** - Unit tests, integration tests, and CI/CD pipeline
 
 ### 📊 **Current Capabilities**
+- Seamless OAuth authentication (no more manual token setup!)
+- Detailed CI status with individual check information
 - Manages vLLM repository PRs efficiently
 - Real-time search and filtering
 - Custom PR organization with persistent groups
 - Team and individual reviewer detection
-- Visual CI status indicators (basic)
+- Robust testing infrastructure with automated CI
 - Background data synchronization
 
 ---
 
-## 🎯 **Next Phase: Core Experience Enhancement**
+## 🎯 **Completed Phase: Core Experience Enhancement**
 
-### **Priority 1: OAuth Device Flow Implementation**
-**Target:** Eliminate authentication friction and improve security
+### **✅ Priority 1: OAuth Device Flow Implementation**
+**Target:** ✅ **COMPLETED** - Eliminate authentication friction and improve security
 
-#### **Why This Matters**
-- Current PAT setup is confusing (repo + read:org scopes)
-- Manual token management creates barriers to adoption
-- Security concerns with token storage
-- Poor user onboarding experience
+#### **What We Delivered**
+- ✅ Chrome Identity API integration with `chrome.identity.launchWebAuthFlow()`
+- ✅ Complete OAuth Device Flow with GitHub
+- ✅ Secure token storage and automatic refresh
+- ✅ Graceful fallback to PAT for power users
+- ✅ Enhanced security with encrypted token management
+- ✅ One-click "Connect with GitHub OAuth" experience
+- ✅ Clear authentication status and error handling
 
-#### **Technical Implementation**
-```
-1. Chrome Identity API Integration
-   - chrome.identity.launchWebAuthFlow()
-   - GitHub OAuth Device Flow
-   - Secure token storage with encryption
-
-2. OAuth Flow Components
-   - Device authorization request
-   - User authentication in GitHub
-   - Token exchange and refresh handling
-   - Graceful fallback to PAT if needed
-
-3. Enhanced Security
-   - Token encryption in chrome.storage
-   - Automatic token refresh
-   - Scope validation and error handling
-```
-
-#### **User Experience Goals**
-- One-click "Connect with GitHub" button
-- No manual scope selection required
-- Automatic token refresh handling
-- Clear connection status indicators
-
-#### **Acceptance Criteria**
-- [ ] OAuth device flow working end-to-end
-- [ ] Fallback to manual PAT still available
-- [ ] Token refresh handled automatically
-- [ ] Error states clearly communicated
-- [ ] Migration path for existing PAT users
+#### **User Impact**
+- **Before**: Complex 4-step PAT setup with scope confusion
+- **After**: One-click OAuth authentication with automatic token management
 
 ---
 
-### **Priority 2: Enhanced CI Status Integration**
-**Target:** Comprehensive CI/CD status visibility for better PR shepherding
+### **✅ Priority 2: Enhanced CI Status Integration**
+**Target:** ✅ **COMPLETED** - Comprehensive CI/CD status visibility
 
-#### **Why This Matters**
-- Current CI status is basic (success/failure/pending)
-- No visibility into specific failing checks
-- Can't distinguish between different CI systems
-- Missing actionable information for debugging
+#### **What We Delivered**
+- ✅ Dual API integration (GitHub Status + Checks APIs)
+- ✅ Individual check status with detailed information
+- ✅ Expandable UI showing all CI checks
+- ✅ Color-coded status indicators for quick visual scanning
+- ✅ Click-through links to external CI system details
+- ✅ Performance optimized for repositories with many checks
 
-#### **Technical Implementation**
-```
-1. Dual API Integration
-   - GitHub Status API (legacy CI systems)
-   - GitHub Checks API (modern CI/CD)
-   - Intelligent merging of both data sources
-
-2. Enhanced Data Model
-   - Individual check status and conclusions
-   - Check suite grouping and organization
-   - Timestamps and duration tracking
-   - Links to logs and detailed information
-
-3. Visual Improvements
-   - Expandable check status section
-   - Color-coded status indicators
-   - Progress indicators for running checks
-   - Quick access to failure details
-```
-
-#### **User Experience Goals**
-- See all CI checks at a glance
-- Understand what specifically is failing
-- Quick access to logs and details
-- Historical check status tracking
-
-#### **Acceptance Criteria**
-- [ ] All CI checks visible (Status + Checks APIs)
-- [ ] Individual check status with details
-- [ ] Expandable UI for check information
-- [ ] Click-through to external CI systems
-- [ ] Performance optimized for many checks
+#### **User Impact**
+- **Before**: Basic ✅❌🟡 status indicators
+- **After**: Detailed view of every CI check with expand/collapse and direct links
 
 ---
 
@@ -206,24 +159,57 @@ Chrome Extension (Manifest V3)
 
 ---
 
-## 📅 **Timeline Estimate**
+## 📅 **Development Timeline**
 
-### **OAuth Implementation** *(1-2 weeks)*
-- Week 1: OAuth flow implementation and testing
-- Week 2: UI integration and user migration path
+### **✅ Phase 2 Completed** *(January 2025)*
+- ✅ **Week 1**: OAuth Device Flow implementation and testing
+- ✅ **Week 1**: Enhanced CI Status API integration  
+- ✅ **Week 2**: UI improvements and comprehensive testing infrastructure
+- ✅ **Week 2**: Performance optimization and error handling
 
-### **Enhanced CI Status** *(1-2 weeks)*
-- Week 1: API integration and data modeling
-- Week 2: UI enhancements and performance optimization
+**Actual timeline: 2 weeks (faster than estimated 3-5 weeks)**
 
-### **Integration & Polish** *(1 week)*
-- Combined testing and refinement
-- Documentation updates
-- User feedback integration
+### **🏗️ Phase 3: Code Architecture Refactoring** *(February 2025)*
 
-**Total estimated timeline: 3-5 weeks for Phase 2 completion**
+**Priority: HIGH** - Critical for long-term sustainability
+
+#### **Current State Analysis**
+- **Total Code**: 8,893 lines (3,255 core app, 3,128 tests)
+- **Main Class**: 1,386 lines, 62 methods, 41 instance variables ❌
+- **Issues**: Monolithic structure, scattered DOM queries, remaining system modals
+- **Grade**: B+ (functional but needs architectural improvements)
+
+#### **Phase 3A: Quick Wins** *(Week 1)*
+- **Replace 6 remaining system modals** with custom modal system
+- **Extract DOMSelectors utility** to centralize DOM access (44 → <20 queries)
+- **Extract constants** to remove magic strings
+- **Add JSDoc documentation** for better code understanding
+
+#### **Phase 3B: Architectural Refactoring** *(Weeks 2-3)*
+- **Break up monolithic PRShepherdSidebar class** (1,386 lines → 6 focused modules):
+  - `PRShepherd` - Main controller (150 lines)
+  - `AuthManager` - Authentication & user state (200 lines)
+  - `GitHubAPI` - API calls, rate limiting, caching (300 lines)
+  - `UIManager` - DOM manipulation, events, rendering (400 lines)
+  - `TagManager` - Tag CRUD, assignments, persistence (200 lines)
+  - `ModalManager` - Custom modals, prompts (150 lines)
+- **Implement centralized state management** pattern
+- **Maintain 95%+ test coverage** during refactoring
+
+#### **Success Metrics**
+- ✅ **Class Size**: 1,386 lines → <200 lines per module
+- ✅ **Method Count**: 62 methods → <15 methods per class
+- ✅ **State Variables**: 41 variables → <10 per class
+- ✅ **System Modals**: 6 remaining → 0
+- ✅ **Test Coverage**: Maintain >95%
+
+### **📋 Future Phase Estimates** *(March+ 2025)*
+- **Multi-Repository Support**: 1-2 weeks
+- **Smart Notifications**: 1 week  
+- **Performance & IndexedDB**: 1-2 weeks
+- **Chrome Web Store Prep**: 1 week
 
 ---
 
 *Last updated: 2025-01-29*  
-*Next review: After OAuth + CI Status implementation*
+*Next review: After multi-repository support implementation*
