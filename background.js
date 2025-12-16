@@ -1,7 +1,12 @@
 // Background service worker for PR Shepherd
 
-// Initialize default state on install
-chrome.runtime.onInstalled.addListener(async () => {
+// Initialize default state on install (not on update)
+chrome.runtime.onInstalled.addListener(async (details) => {
+  // Only initialize defaults on fresh install, not on update
+  if (details.reason !== 'install') {
+    return;
+  }
+
   const stored = await chrome.storage.local.get(['groups', 'prs']);
 
   // Set defaults if not already set

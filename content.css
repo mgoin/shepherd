@@ -1,23 +1,27 @@
 /* Shepherd button styles */
 .shepherd-btn-container {
-  display: inline-block;
-  margin-right: 8px;
+  display: inline-flex;
+  align-items: center;
+  margin-right: -20px;
   position: relative;
+  vertical-align: middle;
 }
 
 .shepherd-dropdown {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
 }
 
 .shepherd-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 12px;
-  font-size: 12px;
+  padding: 3px 12px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 20px;
+  vertical-align: middle;
   color: #24292f;
   background-color: #f6f8fa;
   border: 1px solid rgba(31, 35, 40, 0.15);
@@ -36,8 +40,7 @@
 }
 
 .shepherd-arrow {
-  font-size: 10px;
-  opacity: 0.7;
+  font-size: 14px;
 }
 
 .shepherd-menu {
@@ -116,4 +119,130 @@
 .shepherd-menu-status.active {
   color: #1a7f37;
   background: #dafbe1;
+}
+
+/* Dark mode styles - matches GitHub's dark theme */
+[data-color-mode="dark"] .shepherd-btn,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-btn,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-btn {
+  color: #c9d1d9;
+  background-color: #282d33;
+  border-color: #444c56;
+}
+
+[data-color-mode="dark"] .shepherd-btn:hover,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-btn:hover,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-btn:hover {
+  background-color: #30363d;
+  border-color: #545d68;
+}
+
+[data-color-mode="dark"] .shepherd-menu,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-menu,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-menu {
+  background: #161b22;
+  border-color: #30363d;
+  box-shadow: 0 8px 24px rgba(1, 4, 9, 0.75);
+}
+
+[data-color-mode="dark"] .shepherd-menu-header,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-menu-header,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-menu-header {
+  color: #8b949e;
+  border-bottom-color: #30363d;
+  background: #21262d;
+}
+
+[data-color-mode="dark"] .shepherd-menu-item,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-menu-item,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-menu-item {
+  color: #c9d1d9;
+}
+
+[data-color-mode="dark"] .shepherd-menu-item:hover,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-menu-item:hover,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-menu-item:hover {
+  background-color: #21262d;
+}
+
+[data-color-mode="dark"] .shepherd-menu-item.active,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-menu-item.active,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-menu-item.active {
+  color: #58a6ff;
+}
+
+[data-color-mode="dark"] .shepherd-menu-item.remove,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-menu-item.remove,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-menu-item.remove {
+  color: #f85149;
+  border-top-color: #30363d;
+}
+
+[data-color-mode="dark"] .shepherd-menu-status,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-menu-status,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-menu-status {
+  color: #8b949e;
+  background: #21262d;
+  border-top-color: #30363d;
+}
+
+[data-color-mode="dark"] .shepherd-menu-status.active,
+[data-color-mode="dark"][data-dark-theme="dark"] .shepherd-menu-status.active,
+html[data-color-mode="auto"][data-dark-theme="dark"] .shepherd-menu-status.active {
+  color: #3fb950;
+  background: #1b3d2f;
+}
+
+/* Support for prefers-color-scheme when GitHub is in auto mode */
+@media (prefers-color-scheme: dark) {
+  html[data-color-mode="auto"] .shepherd-btn {
+    color: #c9d1d9;
+    background-color: #282d33;
+    border-color: #444c56;
+  }
+
+  html[data-color-mode="auto"] .shepherd-btn:hover {
+    background-color: #30363d;
+    border-color: #545d68;
+  }
+
+  html[data-color-mode="auto"] .shepherd-menu {
+    background: #161b22;
+    border-color: #30363d;
+    box-shadow: 0 8px 24px rgba(1, 4, 9, 0.75);
+  }
+
+  html[data-color-mode="auto"] .shepherd-menu-header {
+    color: #8b949e;
+    border-bottom-color: #30363d;
+    background: #21262d;
+  }
+
+  html[data-color-mode="auto"] .shepherd-menu-item {
+    color: #c9d1d9;
+  }
+
+  html[data-color-mode="auto"] .shepherd-menu-item:hover {
+    background-color: #21262d;
+  }
+
+  html[data-color-mode="auto"] .shepherd-menu-item.active {
+    color: #58a6ff;
+  }
+
+  html[data-color-mode="auto"] .shepherd-menu-item.remove {
+    color: #f85149;
+    border-top-color: #30363d;
+  }
+
+  html[data-color-mode="auto"] .shepherd-menu-status {
+    color: #8b949e;
+    background: #21262d;
+    border-top-color: #30363d;
+  }
+
+  html[data-color-mode="auto"] .shepherd-menu-status.active {
+    color: #3fb950;
+    background: #1b3d2f;
+  }
 }

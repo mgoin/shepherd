@@ -68,7 +68,13 @@ function createButtonContainer(parent) {
     </div>
   `;
 
-  parent.insertBefore(container, parent.firstChild);
+  // Insert before the Edit button (first child of header actions)
+  const firstButton = parent.querySelector('a, button');
+  if (firstButton) {
+    parent.insertBefore(container, firstButton);
+  } else {
+    parent.insertBefore(container, parent.firstChild);
+  }
 
   // Setup event listeners
   const btn = document.getElementById('shepherdBtn');
