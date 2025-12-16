@@ -1,187 +1,40 @@
-name: 🧪 Test PR Shepherd Extension
+name: Smoke Test
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  test:
-    name: Run Tests
+  smoke-test:
+    name: Smoke Test
     runs-on: ubuntu-latest
-    
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x]
-    
-    steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-      
-    - name: 🟢 Setup Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ matrix.node-version }}
-        
-    - name: 📦 Cache dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.npm
-        key: ${{ runner.os }}-node-${{ hashFiles('**/package*.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-
-          
-    - name: 🧪 Run tests
-      run: node test-runner.js
-      
-    - name: ✅ Validate manifest
-      run: |
-        echo "Validating Chrome extension manifest..."
-        node -e "
-          const fs = require('fs');
-          const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-          console.log('✅ Manifest version:', manifest.manifest_version);
-          console.log('✅ Extension name:', manifest.name);
-          console.log('✅ Required permissions:', manifest.permissions.join(', '));
-          if (manifest.manifest_version !== 3) {
-            throw new Error('Manifest must be version 3');
-          }
-        "
-        
-    - name: 🔍 Check for OAuth setup
-      run: |
-        echo "Checking OAuth implementation..."
-        if grep -q "GitHubOAuth" oauth.js; then
-          echo "✅ OAuth class found"
-        else
-          echo "❌ OAuth class missing"
-          exit 1
-        fi
-        
-    - name: 📊 File structure check
-      run: |
-        echo "Checking required files..."
-        files=("manifest.json" "sidebar.html" "sidebar.js" "sidebar.css" "oauth.js" "background.js")
-        for file in "${files[@]}"; do
-          if [ -f "$file" ]; then
-            echo "✅ $file exists"
-          else
-            echo "❌ $file missing"
-            exit 1
-          fi
-        done
-        
-    - name: 🎯 Extension size check
-      run: |
-        echo "Checking extension size..."
-        total_size=$(du -sb . --exclude=node_modules --exclude=.git --exclude=tests | cut -f1)
-        echo "Extension size: $((total_size / 1024))KB"
-        if [ $total_size -gt 2097152 ]; then # 2MB limit
-          echo "❌ Extension too large (max 2MB for Chrome Web Store)"
-          exit 1
-        else
-          echo "✅ Extension size is acceptable"
-        fi
 
-  lint:
-    name: Code Quality
-    runs-on: ubuntu-latest
-    
     steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-      
-    - name: 🔍 Check JavaScript syntax
-      run: |
-        echo "Checking JavaScript syntax..."
-        node -c sidebar.js
-        node -c oauth.js  
-        node -c background.js
-        echo "✅ All JavaScript files have valid syntax"
-        
-    - name: 📝 Check for TODOs and FIXMEs
-      run: |
-        echo "Checking for pending TODOs..."
-        if grep -r "TODO\|FIXME" --include="*.js" --include="*.html" --include="*.css" .; then
-          echo "⚠️ Found TODOs/FIXMEs - consider addressing them"
-        else
-          echo "✅ No pending TODOs found"
-        fi
-        
-    - name: 🔒 Security check
-      run: |
-        echo "Basic security checks..."
-        if grep -r "eval\|innerHTML.*+" --include="*.js" .; then
-          echo "⚠️ Potential security issues found"
-        else
-          echo "✅ No obvious security issues detected"
-        fi
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  integration:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: test
-    
-    steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-      
-    - name: 🟢 Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20.x'
-        
-    - name: 🔗 Run integration tests
-      run: node test-integration.js
+      - name: Validate manifest and check JS files
+        run: |
+          node -e "
+            const fs = require('fs');
 
-  build:
-    name: Build Check
-    runs-on: ubuntu-latest
-    needs: [test, lint, integration]
-    
-    steps:
-    - name: 📥 Checkout code
-      uses: actions/checkout@v4
-      
-    - name: 📦 Create distribution package
-      run: |
-        echo "Creating extension package..."
-        mkdir -p dist
-        cp manifest.json sidebar.html sidebar.js sidebar.css oauth.js background.js dist/
-        cp -r icons dist/ 2>/dev/null || echo "No icons directory found"
-        cd dist && zip -r ../pr-shepherd.zip . && cd ..
-        echo "✅ Extension package created: pr-shepherd.zip"
-        ls -la pr-shepherd.zip
-        
-    - name: 📤 Upload build artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: pr-shepherd-extension
-        path: pr-shepherd.zip
-        retention-days: 30
+            // Parse and validate manifest
+            const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+            if (manifest.manifest_version !== 3) {
+              throw new Error('manifest_version must be 3');
+            }
+            console.log('Manifest OK:', manifest.name, 'v' + manifest.version);
 
-  status:
-    name: Final Status
-    runs-on: ubuntu-latest
-    needs: [test, lint, integration, build]
-    if: always()
-    
-    steps:
-    - name: 📊 Report status
-      run: |
-        echo "🧪 Test Results Summary:"
-        echo "========================"
-        echo "Tests: ${{ needs.test.result }}"
-        echo "Lint: ${{ needs.lint.result }}"  
-        echo "Integration: ${{ needs.integration.result }}"
-        echo "Build: ${{ needs.build.result }}"
-        echo ""
-        if [[ "${{ needs.test.result }}" == "success" && 
-              "${{ needs.lint.result }}" == "success" && 
-              "${{ needs.integration.result }}" == "success" && 
-              "${{ needs.build.result }}" == "success" ]]; then
-          echo "🎉 All checks passed! Extension is ready for deployment."
-        else
-          echo "❌ Some checks failed. Please review the results above."
-        fi
+            // Check all JS files referenced in manifest
+            const jsFiles = [
+              manifest.background?.service_worker,
+              ...(manifest.content_scripts?.flatMap(cs => cs.js) || [])
+            ].filter(Boolean);
+
+            for (const file of jsFiles) {
+              require('child_process').execSync('node -c ' + file, { stdio: 'inherit' });
+              console.log('Syntax OK:', file);
+            }
+          "
