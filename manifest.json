@@ -1,42 +1,31 @@
 {
   "manifest_version": 3,
   "name": "PR Shepherd",
-  "version": "0.1.0",
-  "description": "Shepherd your vLLM GitHub pull requests - track status, reviews, and CI checks",
+  "version": "1.0.0",
+  "description": "Track and manage GitHub PRs you're shepherding",
   "permissions": [
     "storage",
-    "alarms",
     "activeTab",
-    "tabs",
-    "sidePanel",
-    "identity"
+    "sidePanel"
   ],
   "host_permissions": [
-    "https://api.github.com/*",
-    "https://github.com/*"
+    "https://github.com/*",
+    "https://api.github.com/*"
+  ],
+  "action": {
+    "default_title": "PR Shepherd"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*/pull/*"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
   ],
   "background": {
     "service_worker": "background.js"
-  },
-  "action": {
-    "default_title": "Open PR Shepherd Sidebar",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "32": "icons/icon32.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
-    }
-  },
-  "side_panel": {
-    "default_path": "sidebar.html"
-  },
-  "icons": {
-    "16": "icons/icon16.png",
-    "32": "icons/icon32.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  },
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
   }
 }
