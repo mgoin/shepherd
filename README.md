@@ -1,110 +1,74 @@
-# 🐑 PR Shepherd
+# PR Shepherd
 
-A Chrome extension for managing and tracking your vLLM GitHub pull requests. Keep your PRs organized, monitor CI status, and never miss important updates.
+A Chrome extension for tracking GitHub PRs you're shepherding. Designed for maintainers who follow dozens of PRs and need a quick way to monitor their status.
 
-## Features (Planned)
+## Features
 
-### Core Features
-- **PR Dashboard** - Categorized view (Finished, Ready for Review, WIP)
-- **Real-time Status** - CI checks, review status, merge conflicts  
-- **Activity Tracking** - Latest comments, commits, reviews
-- **Quick Actions** - One-click review requests, merges, status updates
-- **Smart Notifications** - Configurable alerts for status changes
+- **Priority groups**: Organize PRs into customizable groups (default: P0, P1, Backlog)
+- **One-click tracking**: Add PRs directly from GitHub PR pages via a button in the header
+- **Status dashboard**: View CI status, review state, labels, and recent activity in a sidebar
+- **Change detection**: See what changed since your last refresh (new commits, approvals, CI failures)
+- **Failed test visibility**: Expandable list of failed CI checks
 
-### Current Status
-- ✅ Basic Chrome extension structure (Manifest V3)
-- ✅ GitHub GraphQL API integration planning
-- ✅ Popup UI foundation with filtering
-- ✅ Background service worker for periodic updates
-- ⏳ OAuth authentication (currently uses PAT)
-- ⏳ Rate limit monitoring and optimization
-- ⏳ IndexedDB storage for large datasets
+## Installation
 
-## Installation (Development)
+1. Clone or download this repository
+2. Open `chrome://extensions` in Chrome
+3. Enable "Developer mode" (top right toggle)
+4. Click "Load unpacked" and select the `shepherd2` folder
+5. Click the extension icon to open the sidebar
 
-1. Clone this repository
-2. Open Chrome and navigate to `chrome://extensions/`
-3. Enable "Developer mode" in the top right
-4. Click "Load unpacked" and select the project directory
-5. The extension icon should appear in your toolbar
+## Usage
 
-## Setup
+**Adding PRs**: Navigate to any GitHub PR page. Click the "Shepherd" button in the PR header and select a priority group.
 
-### Temporary GitHub Token Setup
-Currently using Personal Access Token (OAuth coming soon):
+**Viewing PRs**: Click the extension icon to open the sidebar. PRs are organized by group tabs.
 
-1. Go to GitHub Settings → Developer settings → Personal access tokens
-2. Generate a new token with these scopes:
-   - `repo` (for private repos) or `public_repo` (for public only)
-   - `read:org` (to read organization membership)
-3. Click the Shepherd extension icon
-4. Enter your token when prompted
+**Refreshing**: Click "Refresh" to fetch latest status for all PRs, or use the ↻ button on individual PRs.
 
-⚠️ **Security Note**: This is temporary. OAuth Device Flow implementation is planned for secure token management.
+**Settings**: Configure priority groups and optionally add a GitHub token for higher API rate limits.
 
-## Development Roadmap
+## Architecture
 
-### Phase 1: Foundation (Week 1-2)
-- [x] Chrome extension boilerplate with Manifest V3
-- [x] GitHub GraphQL API integration
-- [x] Basic PR fetching and display
-- [ ] OAuth Device Flow authentication
-- [ ] Rate limit monitoring with X-RateLimit headers
+```
+manifest.json     # Extension configuration (Manifest V3)
+sidepanel.html/js # Main dashboard UI (Chrome Side Panel API)
+content.js/css    # Injects "Shepherd" button on PR pages
+background.js     # Service worker for initialization and side panel control
+```
 
-### Phase 2: Core Features (Week 2-3)
-- [ ] PR categorization system
-- [ ] Comprehensive CI status (Checks + Status APIs)
-- [ ] Activity timeline with incremental updates
-- [ ] IndexedDB storage with Dexie.js
-- [ ] Service worker lifecycle management
+Data is stored in `chrome.storage.local`:
+- `groups`: Array of priority group names
+- `prs`: Object mapping PR URLs to `{ group, data, updates, lastSeen }`
+- `token`: Optional GitHub personal access token
 
-### Phase 3: Advanced Features (Week 4-5)
-- [ ] Smart notifications with filtering
-- [ ] Quick actions (merge, review, etc.)
-- [ ] Performance optimization
-- [ ] Cross-repository support
-- [ ] Export/import PR lists
+## GitHub API Usage
 
-### Phase 4: Polish (Week 6)
-- [ ] UI/UX improvements
-- [ ] Error handling and offline mode
-- [ ] Chrome Web Store preparation
-- [ ] Documentation and testing
+The extension fetches from the public GitHub API:
+- `GET /repos/:owner/:repo/pulls/:number` - PR metadata
+- `GET /repos/:owner/:repo/pulls/:number/reviews` - Review states
+- `GET /repos/:owner/:repo/commits/:sha/check-runs` - CI check results
+- `GET /repos/:owner/:repo/commits/:sha/status` - Commit statuses
 
-## Technical Architecture
+Without a token, GitHub allows 60 requests/hour. With a token, this increases to 5,000/hour.
 
-### Chrome Extension (Manifest V3)
-- **Background Service Worker**: Periodic PR updates using `chrome.alarms`
-- **Popup Interface**: Main dashboard for PR management
-- **Storage**: `chrome.storage.local` for preferences, IndexedDB for PR data
+## Scope
 
-### GitHub API Integration
-- **GraphQL v4**: Efficient batched queries for PR data
-- **Authentication**: OAuth Device Flow (replacing temporary PAT)
-- **Rate Limiting**: Point-based system with intelligent caching
+This is intentionally a lightweight tool. Current scope:
 
-### Key Optimizations
-- ETags for conditional requests
-- Incremental updates using `updatedAt` timestamps  
-- Pagination for large PR sets
-- Background sync with chrome.alarms
+**In scope**:
+- Track PRs across priority groups
+- Display CI, review, and label status
+- Detect changes between refreshes
+- Manual refresh of PR data
 
-## Contributing
+**Out of scope** (for now):
+- Automatic background refresh
+- Notifications
+- Multiple repository presets
+- PR filtering/search within groups
+- Syncing across devices
 
-This is currently a personal project for managing vLLM PRs, but contributions welcome!
+## Development
 
-## Rate Limiting Strategy
-
-GitHub GraphQL uses a point-based system (5000 points/hour):
-- Each field costs points based on complexity
-- Current query costs ~52 points for 25 PRs with full status
-- Background updates every 5 minutes with smart caching
-- Incremental fetching for PRs updated since last sync
-
-## Lessons Learned (So Far)
-
-1. **Service Worker Lifecycle**: MV3 service workers are ephemeral - use `chrome.alarms` for persistence
-2. **Storage Limits**: Chrome storage has 5MB quota - IndexedDB needed for PR data
-3. **Security**: OAuth Device Flow essential for production token management
-4. **API Efficiency**: GraphQL batching saves significant rate limit quota vs REST
-5. **CI Status Complexity**: Need both Checks API and Status API for full coverage
+Edit the JS/CSS files directly and reload the extension in `chrome://extensions` to see changes. The codebase is vanilla JS with no build step.

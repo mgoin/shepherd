@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 100%;
+      height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 13px;
+      color: #24292f;
+      overflow-y: auto;
+    }
+    .header {
+      padding: 12px;
+      background: #24292f;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+    }
+    .header h1 { font-size: 14px; font-weight: 600; }
+    .header-actions { display: flex; gap: 8px; }
+    .btn {
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: transparent;
+      color: white;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .btn:hover { background: rgba(255,255,255,0.1); }
+    .btn-primary { background: #238636; border-color: #238636; }
+    .btn-primary:hover { background: #2ea043; }
+
+    .settings-panel {
+      display: none;
+      padding: 12px;
+      background: #f6f8fa;
+      border-bottom: 1px solid #d0d7de;
+    }
+    .settings-panel.open { display: block; }
+    .settings-panel h3 { margin-bottom: 8px; font-size: 13px; }
+    .group-list { margin-bottom: 8px; }
+    .group-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+    }
+    .group-item input { flex: 1; padding: 4px 8px; border: 1px solid #d0d7de; border-radius: 4px; }
+    .group-item .delete-group { color: #cf222e; cursor: pointer; }
+    .add-group-row { display: flex; gap: 8px; }
+    .add-group-row input { flex: 1; padding: 4px 8px; border: 1px solid #d0d7de; border-radius: 4px; }
+
+    .token-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #d0d7de; }
+    .token-section input { width: 100%; padding: 6px 8px; border: 1px solid #d0d7de; border-radius: 4px; margin-top: 4px; }
+    .token-hint { font-size: 11px; color: #656d76; margin-top: 4px; }
+
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #d0d7de;
+      background: #f6f8fa;
+      overflow-x: auto;
+    }
+    .tab {
+      padding: 8px 16px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+    .tab:hover { background: #eaeef2; }
+    .tab.active { border-bottom-color: #fd8c73; background: white; }
+    .tab .count {
+      background: #eaeef2;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-left: 4px;
+      font-size: 11px;
+    }
+
+    .pr-list { padding: 8px; }
+    .pr-item {
+      padding: 10px;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: white;
+    }
+    .pr-item:hover { border-color: #0969da; }
+    .pr-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+    .pr-title {
+      font-weight: 600;
+      color: #0969da;
+      text-decoration: none;
+      flex: 1;
+      margin-right: 8px;
+    }
+    .pr-title:hover { text-decoration: underline; }
+    .pr-number { color: #656d76; font-weight: normal; }
+    .pr-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: #656d76; }
+    .pr-meta-item { display: flex; align-items: center; gap: 3px; }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 6px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .status-success { background: #dafbe1; color: #1a7f37; }
+    .status-failure { background: #ffebe9; color: #cf222e; }
+    .status-pending { background: #fff8c5; color: #9a6700; }
+    .status-neutral { background: #eaeef2; color: #656d76; }
+
+    .review-badge { padding: 2px 6px; border-radius: 12px; font-size: 11px; }
+    .review-approved { background: #dafbe1; color: #1a7f37; }
+    .review-changes { background: #ffebe9; color: #cf222e; }
+    .review-pending { background: #fff8c5; color: #9a6700; }
+
+    .labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .label {
+      padding: 2px 6px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    .pr-actions { display: flex; gap: 4px; }
+    .pr-actions select {
+      padding: 2px 6px;
+      border: 1px solid #d0d7de;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .pr-actions button {
+      padding: 2px 6px;
+      border: 1px solid #d0d7de;
+      border-radius: 4px;
+      background: white;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .pr-actions button:hover { background: #f6f8fa; }
+
+    .updates { margin-top: 6px; padding-top: 6px; border-top: 1px solid #eaeef2; }
+    .update-item { font-size: 11px; color: #656d76; padding: 2px 0; }
+    .update-item.new { color: #0969da; font-weight: 500; }
+    .update-item .update-icon { margin-right: 4px; }
+
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: #656d76;
+    }
+    .empty-state p { margin-top: 8px; }
+
+    .loading { text-align: center; padding: 20px; color: #656d76; }
+
+    .failed-tests {
+      margin-top: 6px;
+      padding: 6px;
+      background: #ffebe9;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .failed-tests summary { cursor: pointer; color: #cf222e; font-weight: 500; }
+    .failed-tests ul { margin: 4px 0 0 16px; color: #656d76; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>PR Shepherd</h1>
+    <div class="header-actions">
+      <button class="btn" id="refreshAll" title="Refresh all PRs">Refresh</button>
+      <button class="btn" id="settingsBtn">Settings</button>
+    </div>
+  </div>
+
+  <div class="settings-panel" id="settingsPanel">
+    <h3>Priority Groups</h3>
+    <div class="group-list" id="groupList"></div>
+    <div class="add-group-row">
+      <input type="text" id="newGroupName" placeholder="New group name...">
+      <button class="btn btn-primary" id="addGroupBtn">Add</button>
+    </div>
+
+    <div class="token-section">
+      <h3>GitHub Token (optional)</h3>
+      <input type="password" id="githubToken" placeholder="ghp_...">
+      <p class="token-hint">For higher rate limits. Needs repo scope for private repos.</p>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="pr-list" id="prList">
+    <div class="loading">Loading...</div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
