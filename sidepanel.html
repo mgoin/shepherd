@@ -10,7 +10,15 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
       font-size: 13px;
       color: #24292f;
+      background: #ffffff;
       overflow-y: auto;
+      transition: background-color 0.2s, color 0.2s;
+    }
+
+    /* Dark mode styles */
+    body.dark-mode {
+      background: #0d1117;
+      color: #c9d1d9;
     }
     .header {
       padding: 12px;
@@ -124,6 +132,15 @@
     .review-changes { background: #ffebe9; color: #cf222e; }
     .review-pending { background: #fff8c5; color: #9a6700; }
 
+    .state-badge { padding: 2px 6px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+    .state-open { background: #dafbe1; color: #1a7f37; }
+    .state-merged { background: #ddf4ff; color: #8250df; }
+    .state-closed { background: #ffebe9; color: #cf222e; }
+    .state-draft { background: #eaeef2; color: #656d76; }
+
+    .pr-merged { opacity: 0.7; }
+    .pr-closed { opacity: 0.7; }
+
     .labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
     .label {
       padding: 2px 6px;
@@ -173,11 +190,118 @@
     }
     .failed-tests summary { cursor: pointer; color: #cf222e; font-weight: 500; }
     .failed-tests ul { margin: 4px 0 0 16px; color: #656d76; }
+
+    /* Dark mode overrides */
+    body.dark-mode .settings-panel {
+      background: #161b22;
+      border-bottom-color: #30363d;
+    }
+    body.dark-mode .settings-panel input,
+    body.dark-mode .add-group-row input {
+      background: #0d1117;
+      border-color: #30363d;
+      color: #c9d1d9;
+    }
+    body.dark-mode .token-section {
+      border-top-color: #30363d;
+    }
+    body.dark-mode .token-hint {
+      color: #8b949e;
+    }
+    body.dark-mode .tabs {
+      background: #161b22;
+      border-bottom-color: #30363d;
+    }
+    body.dark-mode .tab:hover {
+      background: #21262d;
+    }
+    body.dark-mode .tab.active {
+      background: #0d1117;
+    }
+    body.dark-mode .tab .count {
+      background: #21262d;
+    }
+    body.dark-mode .pr-item {
+      background: #161b22;
+      border-color: #30363d;
+    }
+    body.dark-mode .pr-item:hover {
+      border-color: #58a6ff;
+    }
+    body.dark-mode .pr-title {
+      color: #58a6ff;
+    }
+    body.dark-mode .pr-number,
+    body.dark-mode .pr-meta {
+      color: #8b949e;
+    }
+    body.dark-mode .status-neutral {
+      background: #21262d;
+      color: #8b949e;
+    }
+    body.dark-mode .pr-actions select,
+    body.dark-mode .pr-actions button {
+      background: #21262d;
+      border-color: #30363d;
+      color: #c9d1d9;
+    }
+    body.dark-mode .pr-actions button:hover {
+      background: #30363d;
+    }
+    body.dark-mode .updates {
+      border-top-color: #21262d;
+    }
+    body.dark-mode .update-item {
+      color: #8b949e;
+    }
+    body.dark-mode .update-item.new {
+      color: #58a6ff;
+    }
+    body.dark-mode .empty-state {
+      color: #8b949e;
+    }
+    body.dark-mode .loading {
+      color: #8b949e;
+    }
+    body.dark-mode .failed-tests {
+      background: #3d1f20;
+    }
+    body.dark-mode .failed-tests summary {
+      color: #f85149;
+    }
+    body.dark-mode .failed-tests ul {
+      color: #8b949e;
+    }
+    body.dark-mode .group-item .delete-group {
+      color: #f85149;
+    }
+
+    /* Theme toggle styling */
+    .theme-section {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #d0d7de;
+    }
+    body.dark-mode .theme-section {
+      border-top-color: #30363d;
+    }
+    .theme-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .theme-toggle label {
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .theme-toggle input[type="checkbox"] {
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <div class="header">
-    <h1>PR Shepherd</h1>
     <div class="header-actions">
       <button class="btn" id="refreshAll" title="Refresh all PRs">Refresh</button>
       <button class="btn" id="settingsBtn">Settings</button>
@@ -197,6 +321,14 @@
       <input type="password" id="githubToken" placeholder="ghp_...">
       <p class="token-hint">For higher rate limits. Needs repo scope for private repos.</p>
     </div>
+
+    <div class="theme-section">
+      <h3>Appearance</h3>
+      <div class="theme-toggle">
+        <input type="checkbox" id="darkModeToggle">
+        <label for="darkModeToggle">Dark mode</label>
+      </div>
+    </div>
   </div>
 
   <div class="tabs" id="tabs"></div>
@@ -205,6 +337,6 @@
     <div class="loading">Loading...</div>
   </div>
 
-  <script src="sidepanel.js"></script>
+  <script type="module" src="sidepanel.js"></script>
 </body>
 </html>

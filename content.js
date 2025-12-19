@@ -1,4 +1,5 @@
 // Content script to inject "Add to Shepherd" button on PR pages
+// Note: storage.js is loaded before this file via manifest, providing storageGet/storageSet as globals
 
 // Check if extension context is still valid
 function isExtensionValid() {
@@ -9,19 +10,15 @@ function isExtensionValid() {
   }
 }
 
-// Safe wrapper for chrome API calls
+// Safe wrapper for storage calls
 async function safeStorageGet(keys) {
-  if (!isExtensionValid()) {
-    throw new Error('Extension context invalidated');
-  }
-  return chrome.storage.local.get(keys);
+  if (!isExtensionValid()) throw new Error('Extension context invalidated');
+  return storageGet(keys);
 }
 
 async function safeStorageSet(data) {
-  if (!isExtensionValid()) {
-    throw new Error('Extension context invalidated');
-  }
-  return chrome.storage.local.set(data);
+  if (!isExtensionValid()) throw new Error('Extension context invalidated');
+  return storageSet(data);
 }
 
 // Wait for the page to load and find the right spot
@@ -114,8 +111,8 @@ async function loadGroups() {
 
   // Load state from storage
   const stored = await safeStorageGet(['groups', 'prs']);
-  const groups = stored.groups || ['P0', 'P1', 'Backlog'];
-  const prs = stored.prs || {};
+  const groups = stored.groups || STORAGE_DEFAULTS.groups;
+  const prs = stored.prs || STORAGE_DEFAULTS.prs;
 
   // Check if PR is already tracked
   const currentGroup = prs[prUrl]?.group;

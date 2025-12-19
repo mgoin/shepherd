@@ -1,26 +1,40 @@
+import { storageGet, storageSet, DEFAULTS, SYNC_KEYS, LOCAL_KEYS } from './storage-module.js';
+
 // State
 let state = {
-  groups: ['P0', 'P1', 'Backlog'],
-  prs: {}, // { prUrl: { group, data, lastSeen } }
+  groups: DEFAULTS.groups,
+  prs: DEFAULTS.prs,
   activeGroup: 'P0',
-  token: ''
+  token: DEFAULTS.token,
+  darkMode: DEFAULTS.darkMode
 };
 
 // Load state from storage
 async function loadState() {
-  const stored = await chrome.storage.local.get(['groups', 'prs', 'token']);
+  const stored = await storageGet(['groups', 'token', 'darkMode', 'prs']);
   if (stored.groups) state.groups = stored.groups;
-  if (stored.prs) state.prs = stored.prs;
   if (stored.token) state.token = stored.token;
+  if (stored.darkMode !== undefined) state.darkMode = stored.darkMode;
+  if (stored.prs) state.prs = stored.prs;
 }
 
 // Save state to storage
 async function saveState() {
-  await chrome.storage.local.set({
+  await storageSet({
     groups: state.groups,
-    prs: state.prs,
-    token: state.token
+    token: state.token,
+    darkMode: state.darkMode,
+    prs: state.prs
   });
+}
+
+// Apply dark mode to the page
+function applyDarkMode() {
+  if (state.darkMode) {
+    document.body.classList.add('dark-mode');
+  } else {
+    document.body.classList.remove('dark-mode');
+  }
 }
 
 // Parse PR URL
@@ -73,6 +87,7 @@ async function fetchPrData(owner, repo, number) {
       url: pr.html_url,
       state: pr.state,
       draft: pr.draft,
+      merged: pr.merged || false,
       user: pr.user.login,
       labels: pr.labels.map(l => ({ name: l.name, color: l.color })),
       createdAt: pr.created_at,
@@ -291,11 +306,25 @@ function renderPrItem(url, pr) {
     </div>
   ` : '';
 
+  // Determine PR state badge
+  let stateClass = 'state-open';
+  let stateText = 'Open';
+  if (data.merged) {
+    stateClass = 'state-merged';
+    stateText = 'Merged';
+  } else if (data.state === 'closed') {
+    stateClass = 'state-closed';
+    stateText = 'Closed';
+  } else if (data.draft) {
+    stateClass = 'state-draft';
+    stateText = 'Draft';
+  }
+
   return `
-    <div class="pr-item">
+    <div class="pr-item ${data.merged ? 'pr-merged' : ''} ${data.state === 'closed' && !data.merged ? 'pr-closed' : ''}">
       <div class="pr-header">
         <a class="pr-title" href="${url}" target="_blank">
-          ${data.draft ? '[Draft] ' : ''}${escapeHtml(data.title)} <span class="pr-number">#${data.number}</span>
+          ${escapeHtml(data.title)} <span class="pr-number">#${data.number}</span>
         </a>
         <div class="pr-actions">
           <select class="move-group" data-url="${url}">
@@ -306,6 +335,7 @@ function renderPrItem(url, pr) {
         </div>
       </div>
       <div class="pr-meta">
+        <span class="state-badge ${stateClass}">${stateText}</span>
         <span class="pr-meta-item">by ${data.user}</span>
         <span class="status-badge ${ciClass}">${ciText}</span>
         <span class="review-badge ${reviewClass}">${reviewText}</span>
@@ -346,6 +376,15 @@ async function refreshPr(url) {
   const data = await fetchPrData(parsed.owner, parsed.repo, parsed.number);
 
   if (data) {
+    // Auto-remove merged PRs
+    if (data.merged) {
+      delete state.prs[url];
+      await saveState();
+      renderTabs();
+      renderPrList();
+      return;
+    }
+
     const updates = detectUpdates(data, oldPr);
     state.prs[url] = {
       ...oldPr,
@@ -423,44 +462,44 @@ function renderGroups() {
   });
 }
 
-// Listen for storage changes (e.g., when PR is added from content script)
+// Listen for storage changes (e.g., when PR is added from content script or settings sync)
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'local') return;
+  // Only handle changes from the expected storage area for each key
+  const validKeys = areaName === 'sync' ? SYNC_KEYS : LOCAL_KEYS;
 
-  let needsRefresh = false;
+  for (const [key, { newValue }] of Object.entries(changes)) {
+    if (!validKeys.includes(key)) continue;
 
-  if (changes.prs) {
-    // Find newly added PRs (ones that don't have data yet)
-    const oldPrs = changes.prs.oldValue || {};
-    const newPrs = changes.prs.newValue || {};
-
-    for (const url of Object.keys(newPrs)) {
-      if (!oldPrs[url]) {
-        // New PR added - fetch its data
-        state.prs = newPrs;
-        refreshPr(url);
-        needsRefresh = true;
+    if (key === 'prs' && newValue) {
+      // Find newly added PRs (ones that don't have data yet)
+      const oldPrs = state.prs;
+      state.prs = newValue;
+      for (const url of Object.keys(newValue)) {
+        if (!oldPrs[url]) refreshPr(url);
       }
-    }
-
-    // Update state with new PRs
-    state.prs = newPrs;
-    if (needsRefresh) {
       renderTabs();
       renderPrList();
+    } else if (key === 'groups' && newValue) {
+      state.groups = newValue;
+      renderTabs();
+      renderGroups();
+    } else if (key === 'darkMode' && newValue !== undefined) {
+      state.darkMode = newValue;
+      applyDarkMode();
+      document.getElementById('darkModeToggle').checked = state.darkMode;
+    } else if (key === 'token') {
+      state.token = newValue || '';
+      document.getElementById('githubToken').value = state.token;
     }
-  }
-
-  if (changes.groups) {
-    state.groups = changes.groups.newValue || state.groups;
-    renderTabs();
-    renderGroups();
   }
 });
 
 // Initialize
 async function init() {
   await loadState();
+
+  // Apply dark mode immediately
+  applyDarkMode();
 
   renderTabs();
   renderPrList();
@@ -470,6 +509,15 @@ async function init() {
   document.getElementById('githubToken').value = state.token;
   document.getElementById('githubToken').onchange = async (e) => {
     state.token = e.target.value.trim();
+    await saveState();
+  };
+
+  // Dark mode toggle
+  const darkModeToggle = document.getElementById('darkModeToggle');
+  darkModeToggle.checked = state.darkMode;
+  darkModeToggle.onchange = async (e) => {
+    state.darkMode = e.target.checked;
+    applyDarkMode();
     await saveState();
   };
 
