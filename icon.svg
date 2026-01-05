@@ -1,3 +1,57 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <text x="50%" y="50%" dominant-baseline="central" text-anchor="middle" font-size="100">🐑</text>
+  <defs>
+    <!-- Soft shadow for depth -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.15"/>
+    </filter>
+    <!-- Wool texture gradient -->
+    <radialGradient id="woolGrad" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FEFEFE"/>
+      <stop offset="100%" stop-color="#E8E4E0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background circle for better visibility -->
+  <circle cx="64" cy="64" r="60" fill="#8B5CF6" opacity="0.9"/>
+
+  <!-- Fluffy wool body - cloud-like cluster -->
+  <g filter="url(#shadow)">
+    <!-- Main body puffs -->
+    <circle cx="64" cy="72" r="28" fill="url(#woolGrad)"/>
+    <circle cx="42" cy="68" r="20" fill="url(#woolGrad)"/>
+    <circle cx="86" cy="68" r="20" fill="url(#woolGrad)"/>
+    <circle cx="52" cy="52" r="18" fill="url(#woolGrad)"/>
+    <circle cx="76" cy="52" r="18" fill="url(#woolGrad)"/>
+    <circle cx="64" cy="46" r="16" fill="url(#woolGrad)"/>
+    <!-- Bottom puffs -->
+    <circle cx="48" cy="85" r="14" fill="url(#woolGrad)"/>
+    <circle cx="80" cy="85" r="14" fill="url(#woolGrad)"/>
+  </g>
+
+  <!-- Legs - simple rounded -->
+  <rect x="44" y="92" width="7" height="18" rx="3.5" fill="#2D2A33"/>
+  <rect x="56" y="92" width="7" height="18" rx="3.5" fill="#2D2A33"/>
+  <rect x="66" y="92" width="7" height="18" rx="3.5" fill="#2D2A33"/>
+  <rect x="78" y="92" width="7" height="18" rx="3.5" fill="#2D2A33"/>
+
+  <!-- Head -->
+  <ellipse cx="64" cy="36" rx="14" ry="12" fill="#2D2A33"/>
+
+  <!-- Ears -->
+  <ellipse cx="48" cy="30" rx="6" ry="5" fill="#2D2A33"/>
+  <ellipse cx="80" cy="30" rx="6" ry="5" fill="#2D2A33"/>
+  <ellipse cx="48" cy="30" rx="3" ry="2.5" fill="#9D8BA0"/>
+  <ellipse cx="80" cy="30" rx="3" ry="2.5" fill="#9D8BA0"/>
+
+  <!-- Eyes - large and friendly -->
+  <circle cx="58" cy="34" r="4" fill="#FEFEFE"/>
+  <circle cx="70" cy="34" r="4" fill="#FEFEFE"/>
+  <!-- Pupils with highlight -->
+  <circle cx="59" cy="35" r="2" fill="#1A1720"/>
+  <circle cx="71" cy="35" r="2" fill="#1A1720"/>
+  <circle cx="57.5" cy="33.5" r="1" fill="#FEFEFE" opacity="0.8"/>
+  <circle cx="69.5" cy="33.5" r="1" fill="#FEFEFE" opacity="0.8"/>
+
+  <!-- Subtle smile -->
+  <path d="M60 40 Q64 43 68 40" stroke="#1A1720" stroke-width="1.5" fill="none" stroke-linecap="round"/>
 </svg>
