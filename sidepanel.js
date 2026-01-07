@@ -59,7 +59,19 @@ async function fetchPrData(owner, repo, number) {
       fetch(`${baseUrl}/commits/${number}/check-runs`, { headers }).catch(() => null)
     ]);
 
-    if (!prRes.ok) throw new Error(`PR fetch failed: ${prRes.status}`);
+    if (!prRes.ok) {
+      if (prRes.status === 403) {
+        const rateLimitRemaining = prRes.headers.get('X-RateLimit-Remaining');
+        if (rateLimitRemaining === '0') {
+          throw new Error('GitHub API rate limit exceeded. Add a token in Settings for higher limits.');
+        }
+        throw new Error('GitHub API access forbidden. Check your token permissions.');
+      }
+      if (prRes.status === 404) {
+        throw new Error('PR not found. It may be private (add a token) or deleted.');
+      }
+      throw new Error(`PR fetch failed: ${prRes.status}`);
+    }
 
     const pr = await prRes.json();
     const reviews = reviewsRes.ok ? await reviewsRes.json() : [];
@@ -102,7 +114,7 @@ async function fetchPrData(owner, repo, number) {
     };
   } catch (error) {
     console.error('Fetch error:', error);
-    return null;
+    return { error: error.message };
   }
 }
 
@@ -123,17 +135,27 @@ function getReviewSummary(reviews) {
 // Get CI status summary
 function getCiSummary(checks, statuses) {
   const allChecks = [
-    ...checks.map(c => ({ name: c.name, status: c.status, conclusion: c.conclusion })),
-    ...statuses.map(s => ({ name: s.context, status: 'completed', conclusion: s.state === 'success' ? 'success' : s.state === 'pending' ? null : 'failure' }))
+    ...checks.map(c => ({
+      name: c.name,
+      status: c.status,
+      conclusion: c.conclusion,
+      url: c.html_url || c.details_url || null
+    })),
+    ...statuses.map(s => ({
+      name: s.context,
+      status: 'completed',
+      conclusion: s.state === 'success' ? 'success' : s.state === 'pending' ? null : 'failure',
+      url: s.target_url || null
+    }))
   ];
 
   const total = allChecks.length;
   const passed = allChecks.filter(c => c.conclusion === 'success').length;
   const failed = allChecks.filter(c => c.conclusion === 'failure').length;
   const pending = allChecks.filter(c => c.status !== 'completed' || c.conclusion === null).length;
-  const failedNames = allChecks.filter(c => c.conclusion === 'failure').map(c => c.name);
+  const failedChecks = allChecks.filter(c => c.conclusion === 'failure').map(c => ({ name: c.name, url: c.url }));
 
-  return { total, passed, failed, pending, failedNames };
+  return { total, passed, failed, pending, failedChecks };
 }
 
 // Detect updates since last seen
@@ -206,8 +228,11 @@ function renderPrList() {
   if (prsInGroup.length === 0) {
     container.innerHTML = `
       <div class="empty-state">
-        <strong>No PRs in ${state.activeGroup}</strong>
-        <p>Add PRs from GitHub PR pages using the button in the header</p>
+        <svg viewBox="0 0 16 16" fill="currentColor">
+          <path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/>
+        </svg>
+        <strong>No PRs in ${escapeHtml(state.activeGroup)}</strong>
+        <p>Visit a GitHub PR page and click "Add to PR Shepherd"</p>
       </div>
     `;
     return;
@@ -215,38 +240,108 @@ function renderPrList() {
 
   container.innerHTML = prsInGroup.map(([url, pr]) => renderPrItem(url, pr)).join('');
 
-  // Add event listeners
+  // Add event listeners for group selects
   container.querySelectorAll('.move-group').forEach(select => {
     select.onchange = async (e) => {
       const url = e.target.dataset.url;
       const newGroup = e.target.value;
-      if (newGroup === '__remove__') {
-        delete state.prs[url];
-      } else {
-        state.prs[url].group = newGroup;
-      }
+      state.prs[url].group = newGroup;
       await saveState();
       renderTabs();
       renderPrList();
     };
   });
 
+  // Add event listeners for refresh buttons
   container.querySelectorAll('.refresh-pr').forEach(btn => {
     btn.onclick = async (e) => {
-      const url = e.target.dataset.url;
+      const button = e.target.closest('.action-btn');
+      const url = button.dataset.url;
+      button.classList.add('loading');
       await refreshPr(url);
+      button.classList.remove('loading');
+    };
+  });
+
+  // Add event listeners for remove buttons
+  container.querySelectorAll('.remove-pr').forEach(btn => {
+    btn.onclick = async (e) => {
+      const button = e.target.closest('.action-btn');
+      const url = button.dataset.url;
+      delete state.prs[url];
+      await saveState();
+      renderTabs();
+      renderPrList();
     };
   });
 }
 
+// SVG Icons
+const icons = {
+  refresh: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z"/></svg>`,
+  remove: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>`,
+  check: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>`,
+  x: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>`,
+  dot: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/></svg>`,
+  clock: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z"/></svg>`,
+  prOpen: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>`,
+  prMerged: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"/></svg>`,
+  prClosed: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 5.5a.75.75 0 0 1 .75.75v3.378a2.251 2.251 0 1 1-1.5 0V7.25a.75.75 0 0 1 .75-.75Zm-2.03-5.273a.75.75 0 0 1 1.06 0l.97.97.97-.97a.748.748 0 0 1 1.265.332.75.75 0 0 1-.205.729l-.97.97.97.97a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-.97-.97-.97.97a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l.97-.97-.97-.97a.75.75 0 0 1 0-1.06ZM3.25 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/></svg>`,
+  prDraft: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.25 1A2.25 2.25 0 0 1 4 5.372v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.251 2.251 0 0 1 3.25 1Zm9.5 14a2.25 2.25 0 1 1 0-4.5 2.25 2.25 0 0 1 0 4.5Zm-9.5-14a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM3.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm9.5 0a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM14 7.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Zm0-4.25a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z"/></svg>`,
+  alert: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>`,
+  arrow: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8.22 2.97a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l2.97-2.97H3.75a.75.75 0 0 1 0-1.5h7.44L8.22 4.03a.75.75 0 0 1 0-1.06Z"/></svg>`
+};
+
 // Render single PR item
 function renderPrItem(url, pr) {
   const data = pr.data;
+
+  // Handle loading state
   if (!data) {
     return `
       <div class="pr-item">
         <div class="pr-header">
-          <a class="pr-title" href="${url}" target="_blank">Loading...</a>
+          <div class="pr-title-row">
+            <a class="pr-title" href="${url}" target="_blank">Loading...</a>
+          </div>
+        </div>
+        <div class="pr-meta">
+          <span class="pr-meta-item">
+            <div class="loading-spinner" style="width: 12px; height: 12px;"></div>
+            Fetching PR data...
+          </span>
+        </div>
+      </div>
+    `;
+  }
+
+  // Handle error state
+  if (data.error) {
+    const groupOptions = state.groups.map(g =>
+      `<option value="${g}" ${g === pr.group ? 'selected' : ''}>${escapeHtml(g)}</option>`
+    ).join('');
+
+    return `
+      <div class="pr-item" style="border-color: var(--color-danger-emphasis);">
+        <div class="pr-header">
+          <div class="pr-title-row">
+            <a class="pr-title" href="${url}" target="_blank">${escapeHtml(url.split('/').slice(-3).join('/'))}</a>
+          </div>
+          <div class="pr-actions" style="opacity: 1;">
+            <select class="move-group" data-url="${url}" title="Move to group">
+              ${groupOptions}
+            </select>
+            <button class="action-btn refresh-pr" data-url="${url}" title="Retry">
+              ${icons.refresh}
+            </button>
+            <button class="action-btn danger remove-pr" data-url="${url}" title="Remove">
+              ${icons.remove}
+            </button>
+          </div>
+        </div>
+        <div class="pr-meta">
+          <span class="status-badge status-failure">${icons.alert} Error</span>
+          <span class="pr-meta-item" style="color: var(--color-danger-fg);">${escapeHtml(data.error)}</span>
         </div>
       </div>
     `;
@@ -256,90 +351,124 @@ function renderPrItem(url, pr) {
   const ciSummary = getCiSummary(data.checks, data.statuses);
   const updates = pr.updates || [];
 
+  // Parse repo from URL
+  const urlMatch = url.match(/github\.com\/([^/]+\/[^/]+)/);
+  const repoName = urlMatch ? urlMatch[1] : '';
+
+  // CI status with icon
   let ciClass = 'status-neutral';
+  let ciIcon = icons.dot;
   let ciText = 'No checks';
   if (ciSummary.total > 0) {
     if (ciSummary.pending > 0) {
       ciClass = 'status-pending';
-      ciText = `${ciSummary.passed}/${ciSummary.total} (${ciSummary.pending} pending)`;
+      ciIcon = icons.dot;
+      ciText = `${ciSummary.pending} pending`;
     } else if (ciSummary.failed > 0) {
       ciClass = 'status-failure';
-      ciText = `${ciSummary.passed}/${ciSummary.total} passed`;
+      ciIcon = icons.x;
+      ciText = `${ciSummary.failed} failed`;
     } else {
       ciClass = 'status-success';
-      ciText = `${ciSummary.passed}/${ciSummary.total} passed`;
+      ciIcon = icons.check;
+      ciText = `${ciSummary.passed} passed`;
     }
   }
 
-  let reviewClass = 'review-pending';
+  // Review status with icon
+  let reviewClass = 'review-none';
+  let reviewIcon = icons.dot;
   let reviewText = 'No reviews';
   if (reviewSummary.total > 0) {
     if (reviewSummary.changesRequested > 0) {
       reviewClass = 'review-changes';
-      reviewText = `Changes requested`;
+      reviewIcon = icons.x;
+      reviewText = 'Changes requested';
     } else if (reviewSummary.approved > 0) {
       reviewClass = 'review-approved';
+      reviewIcon = icons.check;
       reviewText = `${reviewSummary.approved} approved`;
     } else {
-      reviewText = `${reviewSummary.total} reviewed`;
+      reviewClass = 'review-pending';
+      reviewIcon = icons.clock;
+      reviewText = 'Review pending';
     }
   }
 
+  // Labels
   const labels = data.labels.map(l =>
-    `<span class="label" style="background: #${l.color}20; color: #${l.color}; border: 1px solid #${l.color}40">${l.name}</span>`
+    `<span class="label" style="background: #${l.color}20; color: #${l.color}; border: 1px solid #${l.color}40">${escapeHtml(l.name)}</span>`
   ).join('');
 
+  // Group options
   const groupOptions = state.groups.map(g =>
-    `<option value="${g}" ${g === pr.group ? 'selected' : ''}>${g}</option>`
+    `<option value="${g}" ${g === pr.group ? 'selected' : ''}>${escapeHtml(g)}</option>`
   ).join('');
 
-  const failedTests = ciSummary.failedNames.length > 0 ? `
+  // Failed tests expandable with clickable links
+  const failedTests = ciSummary.failedChecks.length > 0 ? `
     <details class="failed-tests">
-      <summary>${ciSummary.failed} failed check(s)</summary>
-      <ul>${ciSummary.failedNames.map(n => `<li>${n}</li>`).join('')}</ul>
+      <summary>${icons.alert} ${ciSummary.failed} failed check${ciSummary.failed > 1 ? 's' : ''}</summary>
+      <ul>${ciSummary.failedChecks.slice(0, 5).map(c =>
+        c.url
+          ? `<li><a href="${c.url}" target="_blank" class="failed-check-link">${escapeHtml(c.name)}</a></li>`
+          : `<li>${escapeHtml(c.name)}</li>`
+      ).join('')}${ciSummary.failedChecks.length > 5 ? `<li>...and ${ciSummary.failedChecks.length - 5} more</li>` : ''}</ul>
     </details>
   ` : '';
 
+  // Updates section
   const updatesHtml = updates.length > 0 ? `
     <div class="updates">
-      ${updates.map(u => `<div class="update-item ${u.isNew ? 'new' : ''}"><span class="update-icon">→</span>${u.text}</div>`).join('')}
+      ${updates.map(u => `<div class="update-item ${u.isNew ? 'new' : ''}">${icons.arrow} ${escapeHtml(u.text)}</div>`).join('')}
     </div>
   ` : '';
 
-  // Determine PR state badge
+  // Determine PR state
   let stateClass = 'state-open';
+  let stateIcon = icons.prOpen;
   let stateText = 'Open';
   if (data.merged) {
     stateClass = 'state-merged';
+    stateIcon = icons.prMerged;
     stateText = 'Merged';
   } else if (data.state === 'closed') {
     stateClass = 'state-closed';
+    stateIcon = icons.prClosed;
     stateText = 'Closed';
   } else if (data.draft) {
     stateClass = 'state-draft';
+    stateIcon = icons.prDraft;
     stateText = 'Draft';
   }
 
   return `
     <div class="pr-item ${data.merged ? 'pr-merged' : ''} ${data.state === 'closed' && !data.merged ? 'pr-closed' : ''}">
       <div class="pr-header">
-        <a class="pr-title" href="${url}" target="_blank">
-          ${escapeHtml(data.title)} <span class="pr-number">#${data.number}</span>
-        </a>
+        <div class="pr-title-row">
+          <a class="pr-title" href="${url}" target="_blank">
+            ${escapeHtml(data.title)} <span class="pr-number">#${data.number}</span>
+          </a>
+          ${repoName ? `<div class="pr-repo">${escapeHtml(repoName)}</div>` : ''}
+        </div>
         <div class="pr-actions">
-          <select class="move-group" data-url="${url}">
+          <select class="move-group" data-url="${url}" title="Move to group">
             ${groupOptions}
-            <option value="__remove__">Remove</option>
           </select>
-          <button class="refresh-pr" data-url="${url}">↻</button>
+          <button class="action-btn refresh-pr" data-url="${url}" title="Refresh">
+            ${icons.refresh}
+          </button>
+          <button class="action-btn danger remove-pr" data-url="${url}" title="Remove">
+            ${icons.remove}
+          </button>
         </div>
       </div>
       <div class="pr-meta">
-        <span class="state-badge ${stateClass}">${stateText}</span>
-        <span class="pr-meta-item">by ${data.user}</span>
-        <span class="status-badge ${ciClass}">${ciText}</span>
-        <span class="review-badge ${reviewClass}">${reviewText}</span>
-        <span class="pr-meta-item">${timeAgo(data.updatedAt)}</span>
+        <span class="state-badge ${stateClass}">${stateIcon} ${stateText}</span>
+        <span class="pr-meta-item">${escapeHtml(data.user)}</span>
+        <span class="status-badge ${ciClass}">${ciIcon} ${ciText}</span>
+        <span class="review-badge ${reviewClass}">${reviewIcon} ${reviewText}</span>
+        <span class="pr-meta-item">${icons.clock} ${timeAgo(data.updatedAt)}</span>
       </div>
       ${labels ? `<div class="labels">${labels}</div>` : ''}
       ${failedTests}
@@ -376,6 +505,18 @@ async function refreshPr(url) {
   const data = await fetchPrData(parsed.owner, parsed.repo, parsed.number);
 
   if (data) {
+    // Handle error responses - store the error but don't remove the PR
+    if (data.error) {
+      state.prs[url] = {
+        ...oldPr,
+        data: { error: data.error },
+        updates: []
+      };
+      await saveState();
+      renderPrList();
+      return;
+    }
+
     // Auto-remove merged PRs
     if (data.merged) {
       delete state.prs[url];

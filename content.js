@@ -65,12 +65,20 @@ function createButtonContainer(parent) {
     </div>
   `;
 
-  // Insert before the Edit button (first child of header actions)
-  const firstButton = parent.querySelector('a, button');
-  if (firstButton) {
-    parent.insertBefore(container, firstButton);
-  } else {
-    parent.insertBefore(container, parent.firstChild);
+  // Insert at the beginning of header actions
+  // Use :scope to only find direct children, avoiding nested elements
+  try {
+    const firstDirectChild = parent.querySelector(':scope > a, :scope > button, :scope > div');
+    if (firstDirectChild && firstDirectChild.parentNode === parent) {
+      parent.insertBefore(container, firstDirectChild);
+    } else if (parent.firstChild) {
+      parent.insertBefore(container, parent.firstChild);
+    } else {
+      parent.appendChild(container);
+    }
+  } catch (e) {
+    // Fallback: just prepend if selectors fail
+    parent.prepend(container);
   }
 
   // Setup event listeners
